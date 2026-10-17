@@ -1,0 +1,153 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seatsnap-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: seatsnap
+      POSTGRES_PASSWORD: seatsnap
+      POSTGRES_DB: seatsnap
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seatsnap -d seatsnap"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seatsnap-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: seatsnap-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - seatsnap-net
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: seatsnap-gateway
+    restart: always
+    ports:
+      - "4000:4000"
+    environment:
+      NODE_ENV: development
+      PORT: 4000
+      DATABASE_URL: postgres://seatsnap:seatsnap@postgres:5432/seatsnap
+      JWT_SECRET: seatsnap-jwt-secret-key-32chars-min-dev
+      INTERNAL_API_KEY: seatsnap-internal-key-32chars-dev
+      BOOKING_URL: http://booking-core:4001
+      PAYMENT_URL: http://payment:4002
+      CORS_ORIGIN: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - seatsnap-net
+
+  booking-core:
+    build:
+      context: .
+      dockerfile: services/booking-core/Dockerfile
+    container_name: seatsnap-booking-core
+    restart: always
+    ports:
+      - "4001:4001"
+    environment:
+      NODE_ENV: development
+      PORT: 4001
+      DATABASE_URL: postgres://seatsnap:seatsnap@postgres:5432/seatsnap
+      REDIS_URL: redis://redis:6379
+      INTERNAL_API_KEY: seatsnap-internal-key-32chars-dev
+      HOLD_TTL_SECONDS: 300
+      SWEEPER_INTERVAL_SECONDS: 30
+      MAX_SEATS_PER_BOOKING: 6
+      PAYMENT_URL: http://payment:4002
+      TICKET_SIGNING_SECRET: seatsnap-ticket-secret-32chars-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - seatsnap-net
+
+  payment:
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    container_name: seatsnap-payment
+    restart: always
+    ports:
+      - "4002:4002"
+    environment:
+      NODE_ENV: development
+      PORT: 4002
+      DATABASE_URL: postgres://seatsnap:seatsnap@postgres:5432/seatsnap
+      REDIS_URL: redis://redis:6379
+      INTERNAL_API_KEY: seatsnap-internal-key-32chars-dev
+      PAYMENT_PROVIDER: mock
+      PAYMENT_WEBHOOK_SECRET: seatsnap-webhook-secret-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - seatsnap-net
+
+  notification:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+    container_name: seatsnap-notification
+    restart: always
+    ports:
+      - "4003:4003"
+    environment:
+      NODE_ENV: development
+      PORT: 4003
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - seatsnap-net
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    container_name: seatsnap-web
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:4000
+    depends_on:
+      - gateway
+    networks:
+      - seatsnap-net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  seatsnap-net:
+    driver: bridge
