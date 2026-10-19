@@ -33,7 +33,7 @@ app.get("/health", (_req: Request, res: Response) => {
 
 // ─── Webhook (public — raw body required for HMAC) ────────────────────────────
 app.post(
-  ["/api/payments/webhook", "/payments/webhook"],
+  ["/api/payments/webhook", "/payments/webhook", "/webhook"],
   express.raw({ type: "*/*" }),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
@@ -54,7 +54,7 @@ app.use(internalAuthMiddleware);
 
 // ─── Create payment order (called by booking-core via /api/bookings/:id/pay) ──
 app.post(
-  ["/api/payments/order", "/payments/order"],
+  ["/api/payments/order", "/payments/order", "/order"],
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await createPaymentOrder(req.body, provider);
@@ -67,7 +67,7 @@ app.post(
 
 // ─── Mock payment completion (dev only) ───────────────────────────────────────
 app.post(
-  ["/api/payments/mock/:orderId/complete", "/payments/mock/:orderId/complete"],
+  ["/api/payments/mock/:orderId/complete", "/payments/mock/:orderId/complete", "/mock/:orderId/complete"],
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const result = await handleMockComplete(req.params.orderId, provider);

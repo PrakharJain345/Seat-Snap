@@ -256,24 +256,35 @@ export async function getBookingById(bookingId: string, userId: string, role?: s
       s.starts_at,
       e.title AS event_title,
       COALESCE(
-        json_agg(
-          json_build_object(
-            'seat_id', bs.seat_id,
-            'row', st.row_label,
-            'number', st.seat_number,
-            'price_minor', st.price_minor,
-            'status', bs.status
-          )
-        ) FILTER (WHERE bs.seat_id IS NOT NULL),
+        (SELECT json_agg(json_build_object(
+          'id', t.id,
+          'seat_id', t.seat_id,
+          'status', t.status,
+          'row', st.row_label,
+          'number', st.seat_number
+        ))
+        FROM booking.tickets t
+        JOIN booking.seats st ON t.seat_id = st.id
+        WHERE t.booking_id = b.id),
+        '[]'
+      ) AS tickets,
+      COALESCE(
+        (SELECT json_agg(json_build_object(
+          'seat_id', bs.seat_id,
+          'row', st.row_label,
+          'number', st.seat_number,
+          'price_minor', st.price_minor,
+          'status', bs.status
+        ))
+        FROM booking.booking_seats bs
+        JOIN booking.seats st ON bs.seat_id = st.id
+        WHERE bs.booking_id = b.id),
         '[]'
       ) AS seats
     FROM booking.bookings b
     JOIN booking.shows s ON b.show_id = s.id
     JOIN booking.events e ON s.event_id = e.id
-    LEFT JOIN booking.booking_seats bs ON b.id = bs.booking_id
-    LEFT JOIN booking.seats st ON bs.seat_id = st.id
     WHERE b.id = $1 AND (b.user_id = $2 OR $3 = 'admin')
-    GROUP BY b.id, s.venue_name, s.starts_at, e.title
   `;
 
   const result = await pool.query(sql, [bookingId, userId, role || "customer"]);
@@ -297,7 +308,33 @@ export async function getUserBookings(userId: string) {
       b.created_at,
       s.venue_name,
       s.starts_at,
-      e.title AS event_title
+      e.title AS event_title,
+      COALESCE(
+        (SELECT json_agg(json_build_object(
+          'id', t.id,
+          'seat_id', t.seat_id,
+          'status', t.status,
+          'row', st.row_label,
+          'number', st.seat_number
+        ))
+        FROM booking.tickets t
+        JOIN booking.seats st ON t.seat_id = st.id
+        WHERE t.booking_id = b.id),
+        '[]'
+      ) AS tickets,
+      COALESCE(
+        (SELECT json_agg(json_build_object(
+          'seat_id', bs.seat_id,
+          'row', st.row_label,
+          'number', st.seat_number,
+          'price_minor', st.price_minor,
+          'status', bs.status
+        ))
+        FROM booking.booking_seats bs
+        JOIN booking.seats st ON bs.seat_id = st.id
+        WHERE bs.booking_id = b.id),
+        '[]'
+      ) AS seats
     FROM booking.bookings b
     JOIN booking.shows s ON b.show_id = s.id
     JOIN booking.events e ON s.event_id = e.id

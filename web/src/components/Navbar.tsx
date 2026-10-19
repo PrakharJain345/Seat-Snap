@@ -44,6 +44,16 @@ export const Navbar: React.FC = () => {
             Explore Events
           </Link>
 
+          {user && (
+            <Link
+              to="/my-bookings"
+              className="text-sm font-medium text-slate-300 hover:text-white transition-colors flex items-center gap-1.5"
+            >
+              <Ticket className="w-4 h-4 text-purple-400" />
+              <span>My Bookings</span>
+            </Link>
+          )}
+
           {user ? (
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-full text-xs text-slate-300">

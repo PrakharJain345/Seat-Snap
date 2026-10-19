@@ -5,6 +5,10 @@ export interface EventShow {
   event_id: string;
   venue_name: string;
   starts_at: string;
+  event_title?: string;
+  city?: string;
+  category?: string;
+  total_seats?: number;
 }
 
 export interface EventItem {
@@ -14,6 +18,59 @@ export interface EventItem {
   city: string;
   description: string | null;
   shows: EventShow[];
+}
+
+export interface SeatItem {
+  id: string;
+  row: string;
+  number: number;
+  priceMinor: number;
+  status: "AVAILABLE" | "HELD" | "BOOKED";
+}
+
+export interface BookingSeat {
+  seat_id: string;
+  row: string;
+  number: number;
+  price_minor: number;
+  status: "HELD" | "CONFIRMED" | "RELEASED";
+}
+
+export interface TicketItem {
+  id: string;
+  seat_id: string;
+  status: "VALID" | "USED";
+  row: string;
+  number: number;
+}
+
+export interface BookingItem {
+  id: string;
+  user_id: string;
+  show_id: string;
+  status: "PENDING_PAYMENT" | "CONFIRMED" | "EXPIRED" | "FAILED" | "CANCELLED";
+  total_minor: number;
+  expires_at: string;
+  created_at: string;
+  venue_name: string;
+  starts_at: string;
+  event_title: string;
+  seats: BookingSeat[];
+  tickets: TicketItem[];
+}
+
+export interface HoldResponse {
+  bookingId: string;
+  expiresAt: string;
+  totalMinor: number;
+  status: string;
+  seatIds: string[];
+}
+
+export interface PaymentOrderResponse {
+  orderId: string;
+  provider: string;
+  checkout: Record<string, unknown>;
 }
 
 export interface AuthResponse {
@@ -73,7 +130,10 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
 
   if (!res.ok) {
     const errorMsg = data?.message || data?.error || `Request failed with status ${res.status}`;
-    throw new Error(errorMsg);
+    const err = new Error(errorMsg) as Error & { code?: string; status?: number };
+    err.code = data?.error;
+    err.status = res.status;
+    throw err;
   }
 
   return data as T;
@@ -91,6 +151,61 @@ export const api = {
 
   getEvent: (id: string) => {
     return fetchApi<EventItem>(`/api/events/${id}`);
+  },
+
+  getShow: (showId: string) => {
+    return fetchApi<EventShow>(`/api/shows/${showId}`);
+  },
+
+  getSeats: (showId: string) => {
+    return fetchApi<SeatItem[]>(`/api/shows/${showId}/seats`);
+  },
+
+  holdSeats: (showId: string, seatIds: string[], idempotencyKey: string) => {
+    return fetchApi<HoldResponse>(`/api/shows/${showId}/hold`, {
+      method: "POST",
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+      },
+      body: JSON.stringify({ seatIds }),
+    });
+  },
+
+  payBooking: (bookingId: string) => {
+    return fetchApi<PaymentOrderResponse>(`/api/bookings/${bookingId}/pay`, {
+      method: "POST",
+    });
+  },
+
+  completeMockPayment: (orderId: string) => {
+    return fetchApi<{ received: boolean; status?: string; message?: string }>(
+      `/api/payments/mock/${orderId}/complete`,
+      {
+        method: "POST",
+      }
+    );
+  },
+
+  getBooking: (bookingId: string) => {
+    return fetchApi<BookingItem>(`/api/bookings/${bookingId}`);
+  },
+
+  getMyBookings: () => {
+    return fetchApi<BookingItem[]>("/api/me/bookings");
+  },
+
+  getTicketQrUrl: (ticketId: string) => {
+    return `${API_URL}/api/tickets/${ticketId}/qr`;
+  },
+
+  validateTicket: (token: string) => {
+    return fetchApi<{ valid: boolean; ticketId?: string; checkedInAt?: string; reason?: string }>(
+      "/api/tickets/validate",
+      {
+        method: "POST",
+        body: JSON.stringify({ token }),
+      }
+    );
   },
 
   signup: (body: { email: string; password: string }) => {
