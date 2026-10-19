@@ -10,6 +10,9 @@ import { initDb } from "./db.js";
 import { eventsRouter } from "./routes/events.routes.js";
 import { showsRouter } from "./routes/shows.routes.js";
 import { bookingsRouter, meRouter } from "./routes/bookings.routes.js";
+import { ticketsRouter } from "./routes/tickets.routes.js";
+import { startSweeper } from "./services/sweeper.service.js";
+import { startPaymentConsumer } from "./consumers/payment.consumer.js";
 
 const app = express();
 
@@ -24,21 +27,21 @@ app.get("/health", (_req: Request, res: Response) => {
 // Require internal key for all service-to-service communication
 app.use(internalAuthMiddleware);
 
-// Mount event routes (both with and without /api prefix for flexibility)
+// Mount routes (both with and without /api prefix for gateway flexibility)
 app.use("/api/events", eventsRouter);
 app.use("/events", eventsRouter);
 
-// Mount shows routes (seats & hold)
 app.use("/api/shows", showsRouter);
 app.use("/shows", showsRouter);
 
-// Mount bookings routes
 app.use("/api/bookings", bookingsRouter);
 app.use("/bookings", bookingsRouter);
 
-// Mount /api/me routes
 app.use("/api/me", meRouter);
 app.use("/me", meRouter);
+
+app.use("/api/tickets", ticketsRouter);
+app.use("/tickets", ticketsRouter);
 
 // Catch-all 404
 app.use((_req: Request, res: Response) => {
@@ -47,13 +50,12 @@ app.use((_req: Request, res: Response) => {
 
 app.use(errorHandlerMiddleware);
 
-import { startSweeper } from "./services/sweeper.service.js";
-
 async function start() {
   try {
     await initDb();
     if (config.NODE_ENV !== "test") {
       startSweeper();
+      startPaymentConsumer();
     }
     app.listen(config.PORT, () => {
       logger.info({ port: config.PORT }, "Booking-core service listening");
@@ -65,4 +67,3 @@ async function start() {
 }
 
 start();
-
