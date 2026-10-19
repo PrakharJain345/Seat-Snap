@@ -49,7 +49,8 @@ export function verifyTicketToken(token: string): { valid: boolean; ticketId?: s
 export async function confirmBookingOnPayment(
   bookingId: string,
   paymentId: string,
-  customPool: Pool = pool
+  customPool: Pool = pool,
+  customRedis: any = redis
 ): Promise<"confirmed" | "late_payment"> {
   let outcome: "confirmed" | "late_payment" = "late_payment";
   let showId: string | null = null;
@@ -130,7 +131,7 @@ export async function confirmBookingOnPayment(
   // Post-transaction: release Redis holds and publish events
   if (showId && seatIds.length > 0) {
     try {
-      await releaseSeatHold(redis, showId, seatIds, bookingId);
+      await releaseSeatHold(customRedis, showId, seatIds, bookingId);
     } catch (err) {
       logger.error({ err, bookingId }, "Failed to release Redis hold after confirmation");
     }
