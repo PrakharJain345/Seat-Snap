@@ -21,3 +21,20 @@ This log records non-obvious architectural and design decisions made during deve
 #### 4. Shared Package without Heavy Cross-Dependencies
 - **Decision:** `packages/shared` contains reusable contracts (Zod schemas), standardized error handling (`AppError`), logging (`pino`), and transactional helpers (`withTransaction`), compiled via TypeScript project references.
 - **Why:** Avoids duplication across the four Node services while keeping each service independently deployable and runnable.
+
+---
+
+### Phase 2: Booking Core, Atomic Holds & Seat Statuses
+
+#### 5. Atomic All-or-None Multi-Seat Hold (Redis Lua)
+- **Decision:** Multi-seat hold reservation is handled by an atomic Redis Lua script (`HOLD_LUA_SCRIPT`) that checks all seat keys in a single execution. If even one seat is already held (`EXISTS`), the script aborts immediately and returns 0 without acquiring partial holds.
+- **Why:** Prevents race conditions and partial hold deadlocks between concurrent users competing for overlapping seats. Eliminates messy rollback logic in distributed memory.
+
+#### 6. Dual-Layer Status Resolution (PostgreSQL + Redis)
+- **Decision:** Seat availability is computed in `getShowSeats` by combining PostgreSQL confirmed seat records (`status = 'CONFIRMED'`) with transient Redis hold keys (`hold:{showId}:{seatId}`).
+- **Why:** Allows fast ephemeral seat reservations (5-minute TTL) with immediate visibility across polling clients, while keeping durable state in Postgres. If Redis experiences transient degradation, the query gracefully falls back to Postgres.
+
+#### 7. Idempotency Key Handling for Holds
+- **Decision:** The hold endpoint requires an `Idempotency-Key` header and checks for an existing `(user_id, idempotency_key)` booking in Postgres before invoking Redis or creating new rows.
+- **Why:** Safely allows client retries in network failure scenarios without creating duplicate bookings or double-locking seats.
+

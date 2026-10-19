@@ -8,6 +8,8 @@ import {
 import { config } from "./config.js";
 import { initDb } from "./db.js";
 import { eventsRouter } from "./routes/events.routes.js";
+import { showsRouter } from "./routes/shows.routes.js";
+import { bookingsRouter, meRouter } from "./routes/bookings.routes.js";
 
 const app = express();
 
@@ -26,22 +28,17 @@ app.use(internalAuthMiddleware);
 app.use("/api/events", eventsRouter);
 app.use("/events", eventsRouter);
 
-// Phase 2+ endpoint stubs
-app.get(["/api/shows/:id/seats", "/shows/:id/seats"], (_req: Request, res: Response) => {
-  res.status(200).json([]);
-});
+// Mount shows routes (seats & hold)
+app.use("/api/shows", showsRouter);
+app.use("/shows", showsRouter);
 
-app.post(["/api/shows/:id/hold", "/shows/:id/hold"], (_req: Request, res: Response) => {
-  res.status(501).json({ error: "NOT_IMPLEMENTED", message: "Seat hold endpoint available in Phase 2" });
-});
+// Mount bookings routes
+app.use("/api/bookings", bookingsRouter);
+app.use("/bookings", bookingsRouter);
 
-app.get(["/api/bookings/:id", "/bookings/:id"], (_req: Request, res: Response) => {
-  res.status(501).json({ error: "NOT_IMPLEMENTED", message: "Booking retrieval available in Phase 2" });
-});
-
-app.get(["/api/me/bookings", "/me/bookings"], (_req: Request, res: Response) => {
-  res.status(200).json([]);
-});
+// Mount /api/me routes
+app.use("/api/me", meRouter);
+app.use("/me", meRouter);
 
 // Catch-all 404
 app.use((_req: Request, res: Response) => {
