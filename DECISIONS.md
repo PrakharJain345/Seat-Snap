@@ -38,3 +38,16 @@ This log records non-obvious architectural and design decisions made during deve
 - **Decision:** The hold endpoint requires an `Idempotency-Key` header and checks for an existing `(user_id, idempotency_key)` booking in Postgres before invoking Redis or creating new rows.
 - **Why:** Safely allows client retries in network failure scenarios without creating duplicate bookings or double-locking seats.
 
+---
+
+### Phase 3: Expiry Sweeper & Concurrency Guarantees
+
+#### 8. Database-Level Unique Index Safety Net
+- **Decision:** A PostgreSQL partial unique index `uq_active_seat ON booking.booking_seats (show_id, seat_id) WHERE status IN ('HELD', 'CONFIRMED')` is enforced in addition to Redis Lua scripting.
+- **Why:** Defense-in-depth: Even if a Redis eviction, cache flush, or distributed split-brain occurs, Postgres categorically forbids two active booking rows for the same seat at the database constraint level.
+
+#### 9. Transactional Expiry Sweeper with Asynchronous Notification
+- **Decision:** The sweeper runs periodically (`SWEEPER_INTERVAL_SECONDS`), queries expired `PENDING_PAYMENT` bookings, locks rows with `FOR UPDATE`, transitions DB states to `EXPIRED` / `RELEASED`, cleans up Redis keys, and pushes `booking.expired` to the BullMQ `booking-events` queue.
+- **Why:** Guarantees holds do not become perpetual zombies if user abandonments occur, freeing up seats for other waiting attendees while cleanly notifying downstream services.
+
+

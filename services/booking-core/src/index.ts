@@ -47,9 +47,14 @@ app.use((_req: Request, res: Response) => {
 
 app.use(errorHandlerMiddleware);
 
+import { startSweeper } from "./services/sweeper.service.js";
+
 async function start() {
   try {
     await initDb();
+    if (config.NODE_ENV !== "test") {
+      startSweeper();
+    }
     app.listen(config.PORT, () => {
       logger.info({ port: config.PORT }, "Booking-core service listening");
     });
@@ -60,3 +65,4 @@ async function start() {
 }
 
 start();
+
