@@ -18,75 +18,74 @@ export const Navbar: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80">
+    <header className="sticky top-0 z-50 backdrop-blur-2xl bg-surface-950/80 border-b border-white/[0.08] shadow-lg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-pink-500 p-0.5 shadow-lg shadow-purple-500/20 group-hover:scale-105 transition-transform">
-            <div className="w-full h-full bg-slate-950 rounded-[10px] flex items-center justify-center">
-              <Ticket className="w-5 h-5 text-purple-400 group-hover:rotate-12 transition-transform" />
-            </div>
+        {/* Brand Logo */}
+        <Link to="/" className="flex items-center gap-2.5 group">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-300 via-amber-400 to-amber-500 text-black flex items-center justify-center font-extrabold shadow-md shadow-amber-500/20 group-hover:scale-105 transition-all">
+            <Ticket className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <div>
-            <span className="text-xl font-bold bg-gradient-to-r from-white via-slate-100 to-purple-300 bg-clip-text text-transparent">
+          <div className="flex flex-col">
+            <span className="text-xl font-extrabold font-display text-white tracking-tight leading-none group-hover:text-amber-300 transition-colors">
               SeatSnap
             </span>
-            <span className="hidden sm:inline-block ml-2 px-1.5 py-0.5 text-[10px] font-semibold bg-purple-500/10 text-purple-400 border border-purple-500/30 rounded-md">
-              MVP
+            <span className="text-[10px] font-mono tracking-wider text-amber-400/80 font-semibold leading-tight">
+              3D LIVE ARENA
             </span>
           </div>
         </Link>
 
-        <nav className="flex items-center gap-4 sm:gap-6">
+        {/* Navigation Items */}
+        <nav className="flex items-center gap-3 sm:gap-6">
           <Link
             to="/"
-            className="text-sm font-medium text-slate-300 hover:text-white transition-colors"
+            className="text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition-colors"
           >
-            Explore Events
+            All Events
           </Link>
 
           {user && (
             <Link
               to="/my-bookings"
-              className="text-sm font-medium text-slate-300 hover:text-white transition-colors flex items-center gap-1.5"
+              className="text-xs sm:text-sm font-semibold text-slate-300 hover:text-amber-300 transition-colors flex items-center gap-1.5"
             >
-              <Ticket className="w-4 h-4 text-purple-400" />
-              <span>My Bookings</span>
+              <Ticket className="w-4 h-4 text-amber-400" />
+              <span>My Tickets</span>
             </Link>
           )}
 
           {user ? (
-            <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-slate-900 border border-slate-800 rounded-full text-xs text-slate-300">
-                <UserIcon className="w-3.5 h-3.5 text-purple-400" />
-                <span className="font-mono text-slate-300">{user.email}</span>
+            <div className="flex items-center gap-2.5">
+              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 bg-surface-900/90 border border-white/10 rounded-full text-xs text-slate-200">
+                <UserIcon className="w-3.5 h-3.5 text-amber-400" />
+                <span className="font-mono text-slate-300 max-w-[140px] truncate">{user.email}</span>
                 {user.role === "admin" && (
-                  <span className="bg-purple-600 text-white text-[10px] px-1.5 py-0.2 rounded font-bold">
+                  <span className="bg-amber-400 text-black text-[10px] px-1.5 py-0.5 rounded font-extrabold uppercase">
                     ADMIN
                   </span>
                 )}
               </div>
               <button
                 onClick={handleLogout}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:text-white bg-surface-900/80 hover:bg-surface-850 border border-white/10 rounded-xl transition-all"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                <span>Logout</span>
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               <Link
                 to="/login"
-                className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-900 rounded-lg transition-colors"
+                className="px-3.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-300 hover:text-white transition-colors"
               >
                 Sign In
               </Link>
               <Link
                 to="/signup"
-                className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 rounded-lg shadow-md shadow-purple-600/20 hover:shadow-purple-600/30 transition-all hover:scale-[1.02]"
+                className="px-4 py-1.5 text-xs sm:text-sm font-bold text-black bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl transition-all shadow-md shadow-amber-500/20"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Sign Up</span>
+                Sign Up
               </Link>
             </div>
           )}

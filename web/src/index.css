@@ -4,27 +4,113 @@
 
 :root {
   font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background-color: #030712;
-  color: #f3f4f6;
+  background-color: #0c0f17;
+  color: #f8fafc;
   overflow-x: hidden;
+  background-image:
+    /* Top amber stage spotlight */
+    radial-gradient(circle at 50% -40px, rgba(245, 158, 11, 0.16) 0%, transparent 650px),
+    /* Left subtle twilight indigo blend */
+    radial-gradient(circle at 10% 200px, rgba(99, 102, 241, 0.08) 0%, transparent 500px),
+    /* Right warm gold accent blend */
+    radial-gradient(circle at 90% 300px, rgba(217, 119, 6, 0.09) 0%, transparent 550px),
+    /* Center bottom atmospheric depth */
+    radial-gradient(circle at 50% 600px, rgba(30, 41, 59, 0.4) 0%, transparent 700px);
+  background-attachment: fixed;
 }
 
-/* Custom scrollbars */
+/* Subtle Architectural Stage Lattice Grid Overlay */
+.stage-grid-bg {
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 40px 40px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black 40%, transparent 80%);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 30%, black 40%, transparent 80%);
+}
+
+/* 3D Perspective & Preservation Utilities */
+.preserve-3d {
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+}
+
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.perspective-1400 {
+  perspective: 1400px;
+}
+
+/* Luxury Blended Cards */
+.card-surface {
+  background: rgba(22, 27, 39, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.card-surface:hover {
+  transform: translateY(-3px);
+  border-color: rgba(245, 158, 11, 0.35);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.65), 0 0 24px -6px rgba(245, 158, 11, 0.18);
+}
+
+.card-surface-active {
+  background: rgba(30, 38, 56, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  box-shadow: 0 16px 36px -12px rgba(0, 0, 0, 0.7), 0 0 30px -4px rgba(245, 158, 11, 0.25);
+}
+
+/* Glowing text gradients */
+.text-gradient-gold {
+  background: linear-gradient(135deg, #ffffff 20%, #fcd34d 60%, #f59e0b 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-amber {
+  background: linear-gradient(135deg, #fef3c7 0%, #fbbf24 50%, #d97706 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* 3D Seat Styles */
+.seat-item {
+  position: relative;
+  transition: all 0.15s ease-out;
+  transform-style: preserve-3d;
+}
+
+.seat-item:hover {
+  transform: translateY(-2px) scale(1.08);
+}
+
+/* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
+
 ::-webkit-scrollbar-track {
-  background: #0b0f19;
+  background: #0c0f17;
 }
+
 ::-webkit-scrollbar-thumb {
-  background: #374151;
+  background: #272f42;
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: #3f4a66;
 }

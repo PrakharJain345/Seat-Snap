@@ -7,14 +7,22 @@ dotenv.config();
 const { Pool } = pg;
 
 const databaseUrl =
-  process.env.DATABASE_URL || "postgres://seatsnap:seatsnap@localhost:5432/seatsnap";
+  process.env.DATABASE_URL || "postgres://seatsnap:seatsnap@localhost:5433/seatsnap";
 
 const pool = new Pool({
   connectionString: databaseUrl,
 });
 
+// Helper to generate dynamic future dates relative to execution time
+function getFutureDate(daysFromNow: number, hour: number = 19, minute: number = 30): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + daysFromNow);
+  d.setHours(hour, minute, 0, 0);
+  return d;
+}
+
 async function seed() {
-  console.log("🌱 Starting database seeding...");
+  console.log("🌱 Starting database seeding with dynamic upcoming shows...");
   const client = await pool.connect();
 
   try {
@@ -117,7 +125,7 @@ async function seed() {
     await client.query("DELETE FROM auth.users WHERE email IN ('admin@seatsnap.com', 'customer@seatsnap.com');");
 
     // 3. Seed Users
-    console.log("Seeding users...");
+    console.log("Seeding verified users...");
     const adminPasswordHash = await bcrypt.hash("AdminPassword123!", 10);
     const customerPasswordHash = await bcrypt.hash("CustomerPassword123!", 10);
 
@@ -129,47 +137,166 @@ async function seed() {
       [adminPasswordHash, customerPasswordHash]
     );
 
-    // 4. Seed 5 Regular Events
-    console.log("Seeding 5 regular events and 1 load test event...");
+    // 4. Seed Comprehensive Events with Dynamic Upcoming Show Dates
+    console.log("Seeding events across Music, Comedy, Movies & Theatre with dynamic upcoming dates...");
     const eventsData = [
+      // --- MUSIC ---
       {
         title: "Coldplay: Music of the Spheres",
         category: "Music",
         city: "Mumbai",
-        description: "World Tour 2026 - Stadium Live concert with synchronized lightbands and immersive acoustics.",
-        venues: ["DY Patil Stadium - Show 1", "DY Patil Stadium - Show 2"],
+        description: "World Tour 2026 - Stadium Live concert with synchronized lightbands, pyrotechnics, and immersive soundscapes.",
+        shows: [
+          { venue: "DY Patil Stadium - Opening Night", date: getFutureDate(0, 19, 30) }, // Tonight
+          { venue: "DY Patil Stadium - Weekend Gala", date: getFutureDate(3, 20, 0) },   // This Saturday
+          { venue: "DY Patil Stadium - Tour Finale", date: getFutureDate(4, 19, 0) },   // This Sunday
+        ],
       },
       {
         title: "Arijit Singh Symphony Live",
         category: "Music",
         city: "Bengaluru",
-        description: "An unforgettable evening of soulful melodies and orchestral arrangements.",
-        venues: ["Manpho Convention Center", "Kanteerava Indoor Stadium"],
+        description: "An unforgettable evening of soulful melodies backed by a 45-piece live acoustic grand orchestra.",
+        shows: [
+          { venue: "Manpho Convention Center", date: getFutureDate(1, 19, 0) },         // Tomorrow
+          { venue: "Kanteerava Indoor Stadium", date: getFutureDate(2, 20, 0) },        // Friday
+        ],
       },
+      {
+        title: "Diljit Dosanjh: Dil-Luminati Tour",
+        category: "Music",
+        city: "Delhi",
+        description: "The blockbuster global Punjabi music tour packed with high-octane energy, bhangra beats, and stadium lasers.",
+        shows: [
+          { venue: "Jawaharlal Nehru Stadium - Day 1", date: getFutureDate(2, 19, 30) },
+          { venue: "Jawaharlal Nehru Stadium - Day 2", date: getFutureDate(3, 20, 0) },
+        ],
+      },
+      {
+        title: "Sunburn Electronic Arena: Martin Garrix",
+        category: "Music",
+        city: "Mumbai",
+        description: "Massive EDM festival stage featuring world #1 DJ with synchronized laser arrays and immersive LED screens.",
+        shows: [
+          { venue: "Jio World Garden - Sunset Stage", date: getFutureDate(3, 18, 0) },
+          { venue: "Jio World Garden - Laser Arena", date: getFutureDate(4, 19, 0) },
+        ],
+      },
+      {
+        title: "Anuv Jain: Guldasta Tour Live",
+        category: "Music",
+        city: "Bengaluru",
+        description: "Intimate indie acoustic melodies featuring viral acoustic hits Husn, Baarishein, and Alag Aasmaan.",
+        shows: [
+          { venue: "Jayamahal Palace Ground", date: getFutureDate(8, 19, 30) },
+          { venue: "Chowdiah Memorial Hall", date: getFutureDate(9, 20, 0) },
+        ],
+      },
+
+      // --- COMEDY ---
       {
         title: "Zakir Khan - Tathastu Standup Special",
         category: "Comedy",
         city: "Delhi",
-        description: "The iconic storyteller returns with rib-tickling humor and heartfelt musings.",
-        venues: ["Sirifort Auditorium - Evening", "Sirifort Auditorium - Late Night"],
+        description: "The iconic storyteller returns with rib-tickling humor, poetic musings, and heartfelt family stories.",
+        shows: [
+          { venue: "Sirifort Auditorium - Evening", date: getFutureDate(0, 20, 0) },   // Tonight
+          { venue: "Sirifort Auditorium - Late Night", date: getFutureDate(1, 21, 30) },// Tomorrow
+          { venue: "Sirifort Auditorium - Weekend Special", date: getFutureDate(4, 18, 30) },
+        ],
       },
       {
-        title: "Interstellar 10th Anniversary IMAX Screening",
+        title: "Anubhav Singh Bassi: Kisi Ko Batana Mat",
+        category: "Comedy",
+        city: "Mumbai",
+        description: "All-new hilarious standup special filled with nostalgic anecdotes, college memories, and effortless delivery.",
+        shows: [
+          { venue: "NCPA Tata Theatre", date: getFutureDate(1, 20, 0) },
+          { venue: "St. Andrew's Auditorium", date: getFutureDate(2, 19, 30) },
+        ],
+      },
+      {
+        title: "Samay Raina: Unfiltered & Live",
+        category: "Comedy",
+        city: "Bengaluru",
+        description: "Raw, spontaneous, and unapologetic dark comedy and crowd interactions from the king of chess comedy.",
+        shows: [
+          { venue: "Good Shepherd Auditorium", date: getFutureDate(3, 20, 0) },
+          { venue: "MLR Convention Centre", date: getFutureDate(4, 19, 0) },
+        ],
+      },
+
+      // --- MOVIES ---
+      {
+        title: "Interstellar 10th Anniversary IMAX 70mm",
         category: "Movies",
         city: "Mumbai",
-        description: "Experience Christopher Nolan's sci-fi masterpiece remastered for IMAX 70mm screens.",
-        venues: ["PVR INOX Lower Parel IMAX", "PVR ICON Versova IMAX"],
+        description: "Experience Christopher Nolan's sci-fi epic remastered for IMAX 70mm screens with visceral Hans Zimmer organ acoustics.",
+        shows: [
+          { venue: "PVR INOX Lower Parel IMAX", date: getFutureDate(0, 21, 45) }, // Tonight
+          { venue: "PVR ICON Versova IMAX - Matinee", date: getFutureDate(1, 18, 0) },
+          { venue: "PVR ICON Versova IMAX - Late Night", date: getFutureDate(1, 22, 15) },
+        ],
       },
+      {
+        title: "Dune: Part Two Ultimate IMAX Experience",
+        category: "Movies",
+        city: "Delhi",
+        description: "Denis Villeneuve's cinematic triumph on giant 1.43:1 dual-laser IMAX screen with earth-shaking rumble seats.",
+        shows: [
+          { venue: "PVR Select Citywalk IMAX", date: getFutureDate(1, 19, 0) },
+          { venue: "PVR Priya Vasant Vihar IMAX", date: getFutureDate(2, 21, 15) },
+        ],
+      },
+      {
+        title: "The Dark Knight Trilogy: IMAX All-Nighter",
+        category: "Movies",
+        city: "Bengaluru",
+        description: "Back-to-back 70mm screenings of Batman Begins, The Dark Knight, and The Dark Knight Rises.",
+        shows: [
+          { venue: "PVR Vega City IMAX", date: getFutureDate(3, 22, 30) },
+          { venue: "PVR Koramangala IMAX", date: getFutureDate(10, 22, 30) },
+        ],
+      },
+
+      // --- THEATRE ---
       {
         title: "Hamilton: An American Musical",
         category: "Theatre",
         city: "Bengaluru",
-        description: "The Pulitzer-winning Broadway revolution blending hip-hop, jazz, R&B and history.",
-        venues: ["Ranga Shankara Theatre", "Chowdiah Memorial Hall"],
+        description: "The 11-time Tony and Pulitzer-winning Broadway revolution blending hip-hop, jazz, R&B, and American history.",
+        shows: [
+          { venue: "Ranga Shankara Theatre", date: getFutureDate(1, 19, 30) },
+          { venue: "Chowdiah Memorial Hall - Matinee", date: getFutureDate(3, 15, 30) },
+          { venue: "Chowdiah Memorial Hall - Evening", date: getFutureDate(3, 20, 0) },
+        ],
+      },
+      {
+        title: "Mughal-e-Azam: The Grand Musical",
+        category: "Theatre",
+        city: "Mumbai",
+        description: "India's biggest Broadway-scale theatrical musical with 350-member cast, Manish Malhotra costumes, and live Kathak.",
+        shows: [
+          { venue: "NMACC The Grand Theatre", date: getFutureDate(2, 19, 30) },
+          { venue: "NMACC The Grand Theatre", date: getFutureDate(3, 20, 0) },
+          { venue: "NMACC The Grand Theatre - Matinee", date: getFutureDate(4, 16, 0) },
+        ],
+      },
+      {
+        title: "The Phantom of the Opera: West End Tour",
+        category: "Theatre",
+        city: "Delhi",
+        description: "Andrew Lloyd Webber's timeless musical featuring the chandelier drop, soaring gothic ballads, and lavish sets.",
+        shows: [
+          { venue: "Siri Fort Auditorium - Opening", date: getFutureDate(7, 20, 0) },
+          { venue: "Siri Fort Auditorium - Gala", date: getFutureDate(8, 19, 30) },
+        ],
       },
     ];
 
     const rowsLabels10 = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"];
+    let totalSeatsSeeded = 0;
+    let totalShowsSeeded = 0;
 
     for (const ev of eventsData) {
       const eventRes = await client.query(
@@ -180,27 +307,28 @@ async function seed() {
       );
       const eventId = eventRes.rows[0].id;
 
-      // 2 shows per event
-      for (let sIdx = 0; sIdx < ev.venues.length; sIdx++) {
-        const startsAt = new Date(Date.now() + (sIdx + 1) * 86400000); // 1 or 2 days in the future
+      // Seed each show for the event
+      for (const showItem of ev.shows) {
         const showRes = await client.query(
           `INSERT INTO booking.shows (event_id, venue_name, starts_at)
            VALUES ($1, $2, $3)
            RETURNING id;`,
-          [eventId, ev.venues[sIdx], startsAt.toISOString()]
+          [eventId, showItem.venue, showItem.date.toISOString()]
         );
         const showId = showRes.rows[0].id;
+        totalShowsSeeded++;
 
         // 10x10 seat grid (100 seats per show)
         const seatValues: string[] = [];
         for (const row of rowsLabels10) {
           for (let num = 1; num <= 10; num++) {
-            // Price: Row A-C 60000 paise, D-G 40000 paise, H-J 25000 paise
+            // Price: Row A-C 60000 paise (VIP), D-G 40000 paise (Premium), H-J 25000 paise (Standard)
             let price = 25000;
             if (["A", "B", "C"].includes(row)) price = 60000;
             else if (["D", "E", "F", "G"].includes(row)) price = 40000;
 
             seatValues.push(`('${showId}', '${row}', ${num}, ${price})`);
+            totalSeatsSeeded++;
           }
         }
 
@@ -212,22 +340,23 @@ async function seed() {
     }
 
     // 5. Seed "Hot Show" (20 x 20 grid = 400 seats) for concurrency & load testing
-    console.log("Seeding 'Hot Show' 20x20 seat grid for load testing...");
+    console.log("Seeding 'Hot Show' 400-seat arena for load testing...");
     const hotEventRes = await client.query(
       `INSERT INTO booking.events (title, category, city, description)
-       VALUES ('Hot Show', 'Music', 'Mumbai', 'High-concurrency load testing event for 400 reserved seats.')
+       VALUES ('Hot Show Arena Experience', 'Music', 'Mumbai', 'High-concurrency load testing event with 400 interactive reserved seats.')
        RETURNING id;`
     );
     const hotEventId = hotEventRes.rows[0].id;
 
-    const hotStartsAt = new Date(Date.now() + 3 * 86400000);
+    const hotStartsAt = getFutureDate(1, 20, 0); // Tomorrow 8:00 PM
     const hotShowRes = await client.query(
       `INSERT INTO booking.shows (event_id, venue_name, starts_at)
-       VALUES ($1, 'Hot Show Arena', $2)
+       VALUES ($1, 'Hot Show Mega Arena', $2)
        RETURNING id;`,
       [hotEventId, hotStartsAt.toISOString()]
     );
     const hotShowId = hotShowRes.rows[0].id;
+    totalShowsSeeded++;
 
     const rowsLabels20 = [
       "A", "B", "C", "D", "E", "F", "G", "H", "I", "J",
@@ -237,7 +366,12 @@ async function seed() {
     const hotSeatValues: string[] = [];
     for (const row of rowsLabels20) {
       for (let num = 1; num <= 20; num++) {
-        hotSeatValues.push(`('${hotShowId}', '${row}', ${num}, 40000)`);
+        let price = 30000;
+        if (["A", "B", "C", "D", "E"].includes(row)) price = 75000;
+        else if (["F", "G", "H", "I", "J", "K", "L"].includes(row)) price = 50000;
+
+        hotSeatValues.push(`('${hotShowId}', '${row}', ${num}, ${price})`);
+        totalSeatsSeeded++;
       }
     }
 
@@ -248,11 +382,10 @@ async function seed() {
 
     await client.query("COMMIT;");
     console.log("✅ Seeding completed successfully!");
-    console.log("Created:");
-    console.log(" - 1 Admin (admin@seatsnap.com / AdminPassword123!)");
-    console.log(" - 1 Customer (customer@seatsnap.com / CustomerPassword123!)");
-    console.log(" - 5 regular events (2 shows each, 100 seats per show)");
-    console.log(" - 1 'Hot Show' event (1 show, 400 seats in 20x20 grid)");
+    console.log(` - ${eventsData.length + 1} Events seeded`);
+    console.log(` - ${totalShowsSeeded} Upcoming Shows seeded (dynamically scheduled from Tonight onwards)`);
+    console.log(` - ${totalSeatsSeeded} Interactive Seats seeded`);
+    console.log(" - Verified Admin & Customer credentials created");
   } catch (err) {
     await client.query("ROLLBACK;");
     console.error("❌ Seeding failed:", err);

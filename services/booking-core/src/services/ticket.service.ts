@@ -52,12 +52,11 @@ export async function confirmBookingOnPayment(
   customPool: Pool = pool,
   customRedis: any = redis
 ): Promise<"confirmed" | "late_payment"> {
-  let outcome: "confirmed" | "late_payment" = "late_payment";
   let showId: string | null = null;
   let seatIds: string[] = [];
   let userId: string | null = null;
 
-  await withTransaction(customPool, async (client: PoolClient) => {
+  const outcome: "confirmed" | "late_payment" = await withTransaction(customPool, async (client: PoolClient): Promise<"confirmed" | "late_payment"> => {
     // Idempotency: insert processed_event; on conflict, skip
     try {
       await client.query(
@@ -68,7 +67,7 @@ export async function confirmBookingOnPayment(
       const pgErr = err as { code?: string };
       if (pgErr.code === "23505") {
         logger.info({ bookingId }, "Duplicate payment.succeeded event — skipping");
-        return;
+        return "late_payment";
       }
       throw err;
     }
@@ -81,7 +80,7 @@ export async function confirmBookingOnPayment(
 
     if (bookingRes.rows.length === 0) {
       logger.warn({ bookingId }, "Booking not found during confirmation");
-      return;
+      return "late_payment";
     }
 
     const booking = bookingRes.rows[0];
@@ -117,14 +116,14 @@ export async function confirmBookingOnPayment(
         );
       }
 
-      outcome = "confirmed";
+      return "confirmed";
     } else {
       // LATE PAYMENT path — publish refund request
-      outcome = "late_payment";
       logger.info(
         { bookingId, status: booking.status, expiresAt: booking.expires_at },
         "Late payment received — publishing refund_requested"
       );
+      return "late_payment";
     }
   });
 

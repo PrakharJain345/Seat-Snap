@@ -92,6 +92,7 @@ app.use(parseAuthToken);
 const bookingProxy = createProxyMiddleware({
   target: config.BOOKING_URL,
   changeOrigin: true,
+  pathRewrite: async (path, req) => (req as Request).originalUrl || path,
   on: {
     proxyReq: (proxyReq, req) => {
       proxyReq.setHeader("x-internal-key", config.INTERNAL_API_KEY);
@@ -115,6 +116,7 @@ const bookingProxy = createProxyMiddleware({
 const paymentProxy = createProxyMiddleware({
   target: config.PAYMENT_URL,
   changeOrigin: true,
+  pathRewrite: async (path, req) => (req as Request).originalUrl || path,
   on: {
     proxyReq: (proxyReq, req) => {
       proxyReq.setHeader("x-internal-key", config.INTERNAL_API_KEY);

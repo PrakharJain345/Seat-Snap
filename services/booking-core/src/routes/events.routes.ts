@@ -54,7 +54,7 @@ eventsRouter.get(
         sql += ` WHERE ${conditions.join(" AND ")}`;
       }
 
-      sql += ` GROUP BY e.id, e.title, e.category, e.city, e.description ORDER BY e.title ASC`;
+      sql += ` GROUP BY e.id, e.title, e.category, e.city, e.description ORDER BY MIN(s.starts_at) ASC NULLS LAST, e.title ASC`;
 
       const result = await pool.query(sql, values);
       res.status(200).json(result.rows);

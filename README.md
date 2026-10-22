@@ -1,36 +1,67 @@
-# 🎟️ SeatSnap: High-Concurrency Ticket Booking Platform
+# 🎟️ SeatSnap
 
-> **Core Invariant:** The same seat can never be sold twice, even under extreme concurrent flash-sale load.
-
-SeatSnap is a production-grade ticket booking platform engineered to handle massive spikes in ticket demand. It features atomic multi-seat holds with a 5-minute TTL, PostgreSQL partial unique constraints as a hard database safety net, an idempotent payment webhook pipeline with BullMQ event queues, and tamper-proof HMAC-SHA256 signed QR ticketing.
+A high-concurrency ticket booking platform built with Node.js, Express, TypeScript, PostgreSQL, Redis, and React. Engineered to guarantee that **no seat can ever be double-booked**, even during extreme flash sales with hundreds of simultaneous requests contending for the same seats.
 
 ---
 
-## 🏗️ Architecture Overview
+## 📸 Demo Walkthrough
 
-SeatSnap is structured as an Express + TypeScript monorepo with service isolation over a partitioned PostgreSQL instance and Redis:
+### 1. Interactive 3D Arena Seat Selection
+* **3D Perspective & 2D Plan**: Switch between a 3D stadium amphitheater with camera pitch/zoom controls and a classic 2D blueprint.
+* **Tiered Seating**: Color-coded rows with distinct VIP Stage Front, Premium Center, and Standard Hall pricing.
+* **Live Seat Inspector**: Hovering over any seat instantly displays its row, number, tier, and exact price in a fixed inspector bar above the grid—no tooltips obscuring neighboring seats.
+
+### 2. Guaranteed 5-Minute Cart Lock
+* Selecting seats and clicking **"Lock & Proceed to Checkout"** executes an atomic multi-seat reservation in Redis.
+* A live 5-minute countdown locks the seats exclusively to your session. If payment is not completed before expiry, the sweeper automatically returns the seats to the public pool.
+
+### 3. One-Click Instant Mock Payment & Webhook
+* Click **"Pay Now (Instant Mock)"** to simulate an automated payment gateway webhook.
+* The backend verifies idempotency, updates status to `CONFIRMED`, and mints cryptographically signed HMAC-SHA256 QR entry passes.
+
+### 4. Digital QR Pass & In-Person Gate Validation
+* View confirmed tickets in **"My Tickets"** with high-resolution QR codes.
+* Gate staff can scan the QR code via `/api/tickets/validate` to verify signature integrity and atomically check in attendees (preventing pass reuse).
+
+---
+
+## ⚡ Key Features
+
+| Feature | Technical Implementation |
+|---|---|
+| **Zero Double-Booking Guarantee** | Dual-layer protection: Atomic Redis Lua script holds seats with 5-min TTL, backed by PostgreSQL `uq_active_seat` partial unique constraint. |
+| **Dynamic Show Scheduling** | 15 premier events across Music, Comedy, IMAX, and Theatre with 34+ dynamically scheduled upcoming shows (Tonight, Tomorrow, This Weekend). |
+| **Live Seat Status Polling** | Frontend short-polls seat availability every 3 seconds via React Query for stateless scalability. |
+| **Idempotent Webhook Pipeline** | Payment events are deduplicated by provider event ID (`payment.webhook_events`) to prevent duplicate confirmations on retries. |
+| **Asynchronous Event Processing** | BullMQ on Redis decouples payment success from ticket generation and notification delivery. |
+| **Cryptographic QR Ticketing** | Each ticket contains an HMAC-SHA256 signed payload (`ticketId:bookingId:seatId:timestamp:signature`) resistant to forgery. |
+| **Automatic Hold Expiry Sweeper** | Background sweeper job runs every 30 seconds to reclaim expired pending bookings and release seats. |
+
+---
+
+## 🏗️ System Architecture
 
 ```mermaid
 graph TD
-  User([Client Browser / Mobile]) -->|HTTP / JSON| Gateway[Gateway :4000]
+  User([Client Browser / Mobile]) -->|HTTP / JSON| Gateway[API Gateway :4000]
   
   subgraph Public Entry & Auth
-    Gateway -->|Auth / Tokens| AuthDB[(PostgreSQL: auth schema)]
+    Gateway -->|JWT Auth / Users| AuthDB[(PostgreSQL: auth schema)]
   end
 
-  subgraph Internal Core Services
+  subgraph Core Microservices
     Gateway -->|Proxy + x-internal-key| BookingCore[booking-core :4001]
     Gateway -->|Proxy + x-internal-key| PaymentSvc[payment :4002]
     
-    BookingCore -->|Holds / Locks| Redis[(Redis 7)]
+    BookingCore -->|Lua Holds / TTL Locks| Redis[(Redis 7)]
     BookingCore -->|Events, Shows, Bookings, Tickets| BookingDB[(PostgreSQL: booking schema)]
     
-    PaymentSvc -->|Orders & Webhooks| PaymentDB[(PostgreSQL: payment schema)]
+    PaymentSvc -->|Payment Orders & Webhooks| PaymentDB[(PostgreSQL: payment schema)]
     
-    PaymentSvc -.->|Publishes payment.succeeded| RedisQueue[(BullMQ on Redis)]
-    RedisQueue -.->|Consumes payment events| BookingCore
-    BookingCore -.->|Publishes booking.confirmed| RedisQueue
-    RedisQueue -.->|Consumes booking events| NotifSvc[notification :4003]
+    PaymentSvc -.->|Publishes payment.succeeded| Queue[(BullMQ on Redis)]
+    Queue -.->|Consumes payment events| BookingCore
+    BookingCore -.->|Publishes booking.confirmed| Queue
+    Queue -.->|Delivers ticket notifications| NotifSvc[notification :4003]
   end
 
   subgraph Frontend
@@ -38,201 +69,169 @@ graph TD
   end
 ```
 
-### Microservices Summary
+### Services Breakdown
 
-| Service | Port | Responsibility | Database Schema |
+| Service | Port | Description | Database Schema |
 |---|---|---|---|
-| **`gateway`** | 4000 | Public entry point, JWT auth (signup/login), rate-limiting, internal header injection (`x-user-id`, `x-internal-key`) | `auth` |
-| **`booking-core`** | 4001 | Events, shows, seats, atomic Lua hold keys, bookings, ticket minting, hold expiry sweeper | `booking` |
-| **`payment`** | 4002 | Payment orders, provider abstraction (`MockProvider`, `RazorpayProvider`), idempotent webhooks | `payment` |
-| **`notification`** | 4003 | Asynchronous queue consumer for ticket confirmation emails (console/Nodemailer/Ethereal) | *None* |
-| **`web`** | 5173 | High-converting React 18 frontend with 3s live polling seat maps and checkout countdown | *None* |
+| **`gateway`** | 4000 | Public reverse proxy, JWT registration/login, rate limiting, header forwarding | `auth` |
+| **`booking-core`** | 4001 | Events, shows, seats, atomic Lua seat holds, bookings, tickets, sweeper | `booking` |
+| **`payment`** | 4002 | Payment orders, mock and Razorpay providers, webhook deduplication | `payment` |
+| **`notification`** | 4003 | Background queue worker for sending ticket confirmation emails | *None* |
+| **`web`** | 5173 | React 18 + Vite client with 3D seat map, live cart lock, and ticket passes | *None* |
 
 ---
 
-## ⚡ Concurrency & Double-Booking Protection Model
-
-SeatSnap employs **Defense-in-Depth** across two layers:
-
-1. **Redis Atomic Multi-Seat Hold (Lua Script):**
-   - Atomically checks `EXISTS` across all requested seat keys (`hold:{showId}:{seatId}`) with 5-minute TTL (300,000ms).
-   - If any seat is already held, the script aborts immediately and returns `0` (all-or-none semantics).
-2. **PostgreSQL Partial Unique Constraint (`uq_active_seat`):**
-   - `CREATE UNIQUE INDEX uq_active_seat ON booking.booking_seats (show_id, seat_id) WHERE status IN ('HELD', 'CONFIRMED');`
-   - Guarantees zero oversells even in the event of cache eviction or Redis partition.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer as Customer
-    participant Gateway as API Gateway (:4000)
-    participant Booking as booking-core (:4001)
-    participant Redis as Redis (Lua Script)
-    participant Postgres as PostgreSQL (booking schema)
-
-    Customer->>Gateway: POST /api/shows/:id/hold { seatIds }
-    Gateway->>Gateway: Verify JWT & Rate Limit (100 req/min)
-    Gateway->>Booking: Proxy with x-user-id & x-internal-key
-    Booking->>Redis: Atomic Lua: Check EXISTS on all keys -> SET PX 300000
-    alt Any seat is already held
-        Redis-->>Booking: Return 0 (Failure)
-        Booking-->>Customer: 409 Conflict: SEATS_UNAVAILABLE
-    else All seats successfully held
-        Redis-->>Booking: Return 1 (Success)
-        Booking->>Postgres: BEGIN Transaction
-        Booking->>Postgres: INSERT booking (PENDING_PAYMENT) & booking_seats (HELD)
-        Note over Postgres: Partial Unique Index uq_active_seat enforces single active hold
-        Postgres-->>Booking: COMMIT
-        Booking-->>Customer: 201 Created { bookingId, expiresAt, totalMinor }
-    end
-```
-
----
-
-## 💳 Payment & Confirmation Saga Flow
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer as Customer
-    participant Frontend as Web App (:5173)
-    participant Gateway as Gateway (:4000)
-    participant Booking as booking-core (:4001)
-    participant Payment as payment (:4002)
-    participant Queue as BullMQ (payment-events)
-    participant Notif as notification (:4003)
-
-    Customer->>Frontend: Click "Pay ₹1,250.00"
-    Frontend->>Gateway: POST /api/bookings/:id/pay
-    Gateway->>Booking: Proxy /pay
-    Booking->>Payment: POST /payments/order (internal)
-    Payment-->>Booking: { orderId, provider, checkout }
-    Booking-->>Frontend: { orderId, provider, checkout }
-
-    Frontend->>Gateway: POST /api/payments/mock/:orderId/complete
-    Gateway->>Payment: Process Mock Provider Completion
-    Payment->>Payment: Deduplicate webhook (provider_event_id PK)
-    Payment->>Payment: UPDATE payment.payments SET status = 'PAID'
-    Payment->>Queue: Publish payment.succeeded { bookingId, paymentId }
-
-    Queue->>Booking: Consumer: confirmBookingOnPayment
-    Booking->>Booking: SELECT ... FOR UPDATE (Lock booking row)
-    alt Booking is active and not expired (expires_at > now())
-        Booking->>Booking: UPDATE status = 'CONFIRMED' & generate HMAC QR tickets
-        Booking->>Queue: Publish booking.confirmed { bookingId, userId, seatIds }
-        Queue->>Notif: Notification worker delivers ticket email with QR link
-    else Late payment (hold expired before payment succeeded)
-        Booking->>Queue: Publish booking.refund_requested { bookingId, paymentId }
-        Booking-->>Customer: Hold expired: refund automatically scheduled
-    end
-```
-
----
-
-## 📊 Measured Concurrency & Performance Benchmarks
-
-All metrics below are verified through automated tests (`npm test` and `loadtest/hold.js`):
-
-| Test Scenario | Load / Concurrency | Target Resource | Observed Outcome | Oversells | Duration |
-|---|---|---|---|---|---|
-| **High Contention Flash Sale** | 300 parallel hold requests across 50 distinct users | Same 5 seats on "Hot Show" | **Exactly 1 succeeds (`201`), 299 receive `409 Conflict`** | **0** | ~430ms |
-| **Webhook Replay Deduplication** | 5 duplicate success webhooks | Single payment order | **Processed once, 4 skipped via primary key dedupe** | **0** | ~210ms |
-| **Late Payment Expiry** | Expired hold (>5 min TTL) | Expired booking | **Booking stays EXPIRED; `booking.refund_requested` emitted** | **0** | <50ms |
-| **Autocannon Endpoint Load** | 200 concurrent connections | `/api/shows/:id/hold` | **p50 < 15ms, p95 < 45ms** | **0** | Configurable |
-
----
-
-## 📡 API Reference Summary
-
-All public client requests target `http://localhost:4000`:
-
-| Method | Endpoint | Auth | Description |
-|---|---|---|---|
-| `POST` | `/api/auth/signup` | Public | Register new account (`email`, `password` min 8 chars) |
-| `POST` | `/api/auth/login` | Public | Authenticate user and receive JWT Bearer token |
-| `GET` | `/api/events` | Public | Browse events (filters: `city`, `category`, `q`) |
-| `GET` | `/api/events/:id` | Public | Event details including show timings |
-| `GET` | `/api/shows/:id/seats` | Public | Live seat map with statuses (`AVAILABLE`, `HELD`, `BOOKED`) |
-| `POST` | `/api/shows/:id/hold` | Customer | Atomic seat reservation (`Idempotency-Key` header, `{ seatIds: [] }`) |
-| `POST` | `/api/bookings/:id/pay` | Customer | Generate payment order with configured provider |
-| `POST` | `/api/payments/webhook` | Signature | Provider webhook endpoint (raw HMAC-SHA256 signature verified) |
-| `POST` | `/api/payments/mock/:orderId/complete` | Customer | Dev simulator: triggers provider success webhook |
-| `GET` | `/api/bookings/:id` | Customer | Fetch booking status, reserved seats, and tickets |
-| `GET` | `/api/me/bookings` | Customer | List all bookings belonging to the authenticated user |
-| `GET` | `/api/tickets/:id/qr` | Customer | Generate and stream HMAC-signed PNG QR code |
-| `POST` | `/api/tickets/validate` | Admin | Cryptographically verify QR token and atomically mark `USED` |
-| `GET` | `/health` | Public | Health status check across all microservices |
-
----
-
-## 🚀 Quickstart & Local Setup
+## 🚀 Quickstart & How to Use
 
 ### Prerequisites
-- Node.js 20+ LTS
-- Docker and Docker Compose (recommended) or local PostgreSQL + Redis
+* **Node.js**: v20+ LTS
+* **Docker & Docker Compose** (for running PostgreSQL and Redis)
 
-### 1. Clone & Install
+---
+
+### Step 1: Clone and Install Dependencies
 ```bash
-git clone <repo-url>
+git clone https://github.com/your-username/ticket-booking.git
 cd ticket-booking
 npm install
 ```
 
-### 2. Configure Environment
+---
+
+### Step 2: Configure Environment Variables
+Copy the sample environment file:
 ```bash
 cp .env.example .env
 ```
-*(All variables have out-of-the-box local development defaults preconfigured).*
+*(Default values work out of the box for local development).*
 
-### 3. Start Infrastructure & Services
+---
+
+### Step 3: Start Services via Docker
+Start PostgreSQL, Redis, and all microservices in containers:
 ```bash
 docker compose up --build
 ```
 
-### 4. Seed Database
-In a separate terminal window:
+Alternatively, if you prefer running services locally with your own local Postgres (`localhost:5433`) and Redis (`localhost:6379`):
 ```bash
-npm run seed
-```
-This populates:
-- 1 Admin: `admin@seatsnap.com` / `AdminPassword123!`
-- 1 Customer: `customer@seatsnap.com` / `CustomerPassword123!`
-- 5 Live Events across Mumbai, Bengaluru, and Delhi with 10x10 seat grids
-- 1 "Hot Show" with a 20x20 seat grid (400 seats) for high-contention testing
+# Terminal 1: API Gateway
+npm --prefix services/gateway run dev
 
-### 5. Access the Web Application
-- **Frontend App:** [http://localhost:5173](http://localhost:5173)
-- **API Gateway:** [http://localhost:4000](http://localhost:4000)
+# Terminal 2: Booking Core
+npm --prefix services/booking-core run dev
+
+# Terminal 3: Payment Service
+npm --prefix services/payment run dev
+
+# Terminal 4: Frontend Web
+npm --prefix web run dev
+```
 
 ---
 
-## 🧪 Automated Test Suite
-
-SeatSnap includes 26 automated unit and concurrency tests covering all critical paths:
-
+### Step 4: Seed the Database
+In a separate terminal, run the database seed script:
 ```bash
-# Run complete test suite (Vitest)
+npm run seed
+```
+
+This populates:
+* **Admin Account**: `admin@seatsnap.com` / `AdminPassword123!`
+* **Customer Account**: `customer@seatsnap.com` / `CustomerPassword123!`
+* **15 Events & 34 Shows**: Dynamically scheduled starting from **Tonight** across Mumbai, Bengaluru, and Delhi.
+* **1 Concurrency Benchmark Event**: *"Hot Show Arena"* with 400 seats for load testing.
+
+---
+
+### Step 5: Open the Application
+* **Frontend Web App**: [http://localhost:5173](http://localhost:5173)
+* **API Gateway**: [http://localhost:4000](http://localhost:4000)
+* **Health Check**: [http://localhost:4000/health](http://localhost:4000/health)
+
+---
+
+## 🧪 Testing & Concurrency Benchmarks
+
+### 1. Run Unit & Integration Tests (Vitest)
+Executes 26 automated unit and integration tests across services, testing JWT auth, Redis Lua hold atomicity, webhook deduplication, and late payment refund queues:
+```bash
 npm test
+```
 
-# Run load test script
+### 2. High-Contention Flash-Sale Load Test
+Simulates **300 simultaneous hold requests across 50 users** fighting for the exact same 5 seats at the same millisecond:
+```bash
 npm run loadtest
+```
+**Expected Outcome:**
+* Exactly **1 request succeeds (`201 Created`)**.
+* The remaining **299 requests receive `409 Conflict: SEATS_UNAVAILABLE`**.
+* **Zero oversells / double bookings.**
 
-# Run type check across monorepo
+### 3. Type Checking & Linting
+```bash
 npm run typecheck
-
-# Run linter
 npm run lint
 ```
 
 ---
 
-## ⚠️ Known Limitations & Design Trade-offs
+## 📡 API Reference
 
-1. **Short-Polling vs. WebSockets:** The frontend polls the seat map every 3 seconds via React Query. While WebSockets provide lower latency updates, HTTP short-polling was explicitly chosen per the specification for stateless scalability, zero connection leak risk, and seamless multi-region gateway load balancing.
-2. **Mock Payment Provider:** For local development and demonstration, `MockProvider` simulates instant provider webhook dispatch. For production deployments with Razorpay, set `PAYMENT_PROVIDER=razorpay` and supply real merchant keys in `.env`.
-3. **Database-per-Service Partitioning:** Services share a single PostgreSQL container but operate in strictly isolated schemas (`auth`, `booking`, `payment`), ensuring clean separation without the resource overhead of three separate database server processes in dev mode.
+All client requests go through the API Gateway at `http://localhost:4000`:
+
+### Authentication & Users
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/api/auth/signup` | Public | Register with email and password |
+| `POST` | `/api/auth/login` | Public | Login and receive JWT bearer token |
+| `GET` | `/api/me/bookings` | Customer | List bookings belonging to the authenticated user |
+
+### Events & Shows
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/events` | Public | List events (supports `?city=`, `?category=`, `?q=`) |
+| `GET` | `/api/events/:id` | Public | Get single event details with all show dates |
+| `GET` | `/api/shows/:id/seats` | Public | Real-time seat grid with statuses (`AVAILABLE`, `HELD`, `BOOKED`) |
+
+### Booking & Holds
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/api/shows/:id/hold` | Customer | Atomically hold up to 6 seats for 5 minutes (`{ seatIds: string[] }`) |
+| `GET` | `/api/bookings/:id` | Customer | Get booking details, countdown status, and tickets |
+
+### Payment & Webhooks
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `POST` | `/api/bookings/:id/pay` | Customer | Create payment order with configured provider |
+| `POST` | `/api/payments/mock/:orderId/complete` | Customer | Developer simulator for instant mock payment completion |
+| `POST` | `/api/payments/webhook` | Signature | Production webhook receiver (HMAC signature verified) |
+
+### Tickets & Gate Validation
+| Method | Endpoint | Access | Description |
+|---|---|---|---|
+| `GET` | `/api/tickets/:id/qr` | Customer | Render tamper-proof PNG QR code with HMAC token |
+| `POST` | `/api/tickets/validate` | Admin | Scan & cryptographically verify ticket QR, marking it `USED` |
 
 ---
 
-## 📑 Decisions Log
-See [DECISIONS.md](file:///c:/Users/jainp/OneDrive/Desktop/ticket-booking/DECISIONS.md) for detailed rationale behind all architectural and engineering decisions.
+## 🔒 Security & Concurrency Defense-in-Depth
+
+1. **Redis Lua Script Atomicity**:
+   Checking seat availability and writing the hold keys (`hold:{showId}:{seatId}`) is executed inside an atomic Redis Lua script. Either all requested seats are successfully acquired, or none are.
+2. **PostgreSQL Partial Unique Constraint**:
+   ```sql
+   CREATE UNIQUE INDEX uq_active_seat ON booking.booking_seats (show_id, seat_id)
+     WHERE status IN ('HELD', 'CONFIRMED');
+   ```
+   Even if Redis were to crash or experience cache eviction, the database rejects any concurrent insert with a duplicate active seat, guaranteeing zero data corruption.
+3. **Idempotent Webhooks**:
+   Incoming payment events are recorded in `payment.webhook_events` using `provider_event_id` as the primary key. Duplicate webhook deliveries are safely acknowledged and skipped.
+4. **Late Payment Protection**:
+   If a payment succeeds after the 5-minute hold has expired and seats were released, `booking-core` detects the expired status, avoids overselling, and automatically dispatches a `booking.refund_requested` event.
+
+---
+
+## 📄 License
+MIT License. Free to use for educational and commercial purposes.
