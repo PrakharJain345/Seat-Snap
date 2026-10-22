@@ -12,10 +12,25 @@ import { spawn } from "child_process";
 
 const PUBLIC_PORT = process.env.PORT || "4000";
 
-// Ensure Upstash Redis uses TLS (rediss://)
-if (process.env.REDIS_URL && process.env.REDIS_URL.includes("upstash.io") && process.env.REDIS_URL.startsWith("redis://")) {
-  console.log("🔒 Converting Upstash connection to TLS (rediss://)...");
-  process.env.REDIS_URL = process.env.REDIS_URL.replace(/^redis:\/\//, "rediss://");
+// Ensure Redis URL is clean and uses TLS (rediss://) for Upstash
+function sanitizeRedisUrl(url) {
+  if (!url) return url;
+  let clean = url.trim();
+  // If the user pasted the entire CLI command: e.g. "redis-cli --tls -u redis://default:..."
+  const match = clean.match(/rediss?:\/\/[^\s"']+/);
+  if (match) {
+    clean = match[0];
+  }
+  // Upstash strictly requires TLS protocol (rediss://)
+  if (clean.includes("upstash.io") && clean.startsWith("redis://")) {
+    clean = clean.replace(/^redis:\/\//, "rediss://");
+  }
+  return clean;
+}
+
+if (process.env.REDIS_URL) {
+  process.env.REDIS_URL = sanitizeRedisUrl(process.env.REDIS_URL);
+  console.log("🔒 Sanitized Redis connection URL:", process.env.REDIS_URL.replace(/:[^:@]+@/, ":****@"));
 }
 
 const services = [
