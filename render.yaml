@@ -1,0 +1,151 @@
+# ==============================================================================
+# SeatSnap — Render Blueprint (Infrastructure-as-Code)
+# Deploy in 1 click at https://dashboard.render.com/blueprints
+# ==============================================================================
+
+databases:
+  - name: seatsnap-db
+    databaseName: seatsnap
+    user: seatsnap
+    plan: free
+    region: oregon
+
+services:
+  # ─── 1. API Gateway (Public Web Service) ────────────────────────────────────
+  - type: web
+    name: seatsnap-gateway
+    env: node
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build --workspace=@seatsnap/shared && npm run build --workspace=@seatsnap/gateway
+    startCommand: node services/gateway/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: seatsnap-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+        # Enter your Redis URL (e.g. from Upstash.com free Redis)
+      - key: JWT_SECRET
+        generateValue: true
+      - key: INTERNAL_API_KEY
+        generateValue: true
+      - key: BOOKING_URL
+        fromService:
+          type: pserv
+          name: seatsnap-booking-core
+          property: host
+      - key: PAYMENT_URL
+        fromService:
+          type: pserv
+          name: seatsnap-payment
+          property: host
+      - key: CORS_ORIGIN
+        value: "*"
+
+  # ─── 2. Booking Core (Private Service) ──────────────────────────────────────
+  - type: pserv
+    name: seatsnap-booking-core
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build --workspace=@seatsnap/shared && npm run build --workspace=@seatsnap/booking-core
+    startCommand: node services/booking-core/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4001
+      - key: DATABASE_URL
+        fromDatabase:
+          name: seatsnap-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        fromService:
+          type: web
+          name: seatsnap-gateway
+          envVarKey: INTERNAL_API_KEY
+      - key: TICKET_SIGNING_SECRET
+        generateValue: true
+      - key: HOLD_TTL_SECONDS
+        value: "300"
+      - key: SWEEPER_INTERVAL_SECONDS
+        value: "30"
+      - key: MAX_SEATS_PER_BOOKING
+        value: "6"
+      - key: PAYMENT_URL
+        fromService:
+          type: pserv
+          name: seatsnap-payment
+          property: host
+
+  # ─── 3. Payment Service (Private Service) ───────────────────────────────────
+  - type: pserv
+    name: seatsnap-payment
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build --workspace=@seatsnap/shared && npm run build --workspace=@seatsnap/payment
+    startCommand: node services/payment/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4002
+      - key: DATABASE_URL
+        fromDatabase:
+          name: seatsnap-db
+          property: connectionString
+      - key: REDIS_URL
+        sync: false
+      - key: INTERNAL_API_KEY
+        fromService:
+          type: web
+          name: seatsnap-gateway
+          envVarKey: INTERNAL_API_KEY
+      - key: PAYMENT_PROVIDER
+        value: mock
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+
+  # ─── 4. Notification Worker (Background Worker) ─────────────────────────────
+  - type: worker
+    name: seatsnap-notification
+    env: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build --workspace=@seatsnap/shared && npm run build --workspace=@seatsnap/notification
+    startCommand: node services/notification/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4003
+      - key: REDIS_URL
+        sync: false
+
+  # ─── 5. React Web App (Static Site) ─────────────────────────────────────────
+  - type: web
+    name: seatsnap-web
+    env: static
+    plan: free
+    region: oregon
+    buildCommand: npm install && npm run build --workspace=@seatsnap/web
+    staticPublishPath: web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: seatsnap-gateway
+          property: host
