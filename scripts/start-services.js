@@ -12,6 +12,12 @@ import { spawn } from "child_process";
 
 const PUBLIC_PORT = process.env.PORT || "4000";
 
+// Ensure Upstash Redis uses TLS (rediss://)
+if (process.env.REDIS_URL && process.env.REDIS_URL.includes("upstash.io") && process.env.REDIS_URL.startsWith("redis://")) {
+  console.log("🔒 Converting Upstash connection to TLS (rediss://)...");
+  process.env.REDIS_URL = process.env.REDIS_URL.replace(/^redis:\/\//, "rediss://");
+}
+
 const services = [
   {
     name: "booking-core",
