@@ -23,6 +23,19 @@ export const DEFAULT_JOB_OPTIONS: DefaultJobOptions = {
   removeOnFail: false,
 };
 
+export function sanitizeRedisUrl(url?: string): string {
+  if (!url) return "redis://redis:6379";
+  let clean = url.trim();
+  const match = clean.match(/rediss?:\/\/[^\s"']+/);
+  if (match) {
+    clean = match[0];
+  }
+  if (clean.includes("upstash.io") && clean.startsWith("redis://")) {
+    clean = clean.replace(/^redis:\/\//, "rediss://");
+  }
+  return clean;
+}
+
 export interface PaymentSucceededPayload {
   bookingId: string;
   paymentId: string;
