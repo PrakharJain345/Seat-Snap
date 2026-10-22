@@ -1,4 +1,8 @@
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
+let rawApiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+if (rawApiUrl && !rawApiUrl.startsWith("http://") && !rawApiUrl.startsWith("https://")) {
+  rawApiUrl = `https://${rawApiUrl}`;
+}
+const API_URL = rawApiUrl;
 
 export interface EventShow {
   id: string;

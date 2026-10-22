@@ -36,15 +36,9 @@ services:
       - key: INTERNAL_API_KEY
         generateValue: true
       - key: BOOKING_URL
-        fromService:
-          type: pserv
-          name: seatsnap-booking-core
-          property: host
+        value: http://seatsnap-booking-core:4001
       - key: PAYMENT_URL
-        fromService:
-          type: pserv
-          name: seatsnap-payment
-          property: host
+        value: http://seatsnap-payment:4002
       - key: CORS_ORIGIN
         value: "*"
 
@@ -81,10 +75,7 @@ services:
       - key: MAX_SEATS_PER_BOOKING
         value: "6"
       - key: PAYMENT_URL
-        fromService:
-          type: pserv
-          name: seatsnap-payment
-          property: host
+        value: http://seatsnap-payment:4002
 
   # ─── 3. Payment Service (Private Service) ───────────────────────────────────
   - type: pserv
@@ -135,8 +126,6 @@ services:
   - type: web
     name: seatsnap-web
     env: static
-    plan: free
-    region: oregon
     buildCommand: npm install && npm run build --workspace=@seatsnap/web
     staticPublishPath: web/dist
     routes:
