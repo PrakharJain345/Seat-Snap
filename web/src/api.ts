@@ -1,8 +1,9 @@
-let rawApiUrl = import.meta.env.VITE_API_URL || "http://localhost:4000";
+let rawApiUrl = (import.meta.env.VITE_API_URL || "http://localhost:4000").trim();
 if (rawApiUrl && !rawApiUrl.startsWith("http://") && !rawApiUrl.startsWith("https://")) {
   rawApiUrl = `https://${rawApiUrl}`;
 }
-const API_URL = rawApiUrl;
+rawApiUrl = rawApiUrl.replace(/\/+$/, "");
+export const API_URL = rawApiUrl;
 
 export interface EventShow {
   id: string;
@@ -125,22 +126,32 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const res = await fetch(`${API_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  try {
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+    });
 
-  const data = await res.json().catch(() => null);
+    const data = await res.json().catch(() => null);
 
-  if (!res.ok) {
-    const errorMsg = data?.message || data?.error || `Request failed with status ${res.status}`;
-    const err = new Error(errorMsg) as Error & { code?: string; status?: number };
-    err.code = data?.error;
-    err.status = res.status;
+    if (!res.ok) {
+      const errorMsg = data?.message || data?.error || `Request failed with status ${res.status}`;
+      const err = new Error(errorMsg) as Error & { code?: string; status?: number };
+      err.code = data?.error;
+      err.status = res.status;
+      throw err;
+    }
+
+    return data as T;
+  } catch (err: any) {
+    if (err.name === "TypeError" && (err.message === "Failed to fetch" || err.message?.includes("fetch"))) {
+      console.error(
+        `[SeatSnap Network Error] Unable to connect to backend at "${API_URL}${endpoint}". ` +
+        `Ensure backend is running and VITE_API_URL is configured.`
+      );
+    }
     throw err;
   }
-
-  return data as T;
 }
 
 export const api = {

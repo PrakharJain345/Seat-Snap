@@ -18,7 +18,7 @@ import {
   Layers,
   Flame,
 } from "lucide-react";
-import { api, EventItem } from "../api";
+import { api, API_URL, EventItem } from "../api";
 import { getEventVisual } from "../utils/eventImages";
 import { formatShowDate } from "../utils/dateUtils";
 
@@ -280,14 +280,25 @@ export const HomePage: React.FC = () => {
 
         {/* Error State */}
         {error && (
-          <div className="p-8 text-center bg-red-950/20 border border-red-900/40 rounded-2xl">
-            <p className="text-red-400 font-semibold">Failed to load events</p>
+          <div className="p-8 text-center bg-red-950/20 border border-red-900/40 rounded-2xl max-w-xl mx-auto">
+            <p className="text-red-400 font-semibold text-base">Failed to load events</p>
             <p className="text-slate-400 text-sm mt-1">{(error as Error).message}</p>
+            {((error as Error).message === "Failed to fetch" || (error as Error).message?.includes("fetch")) && (
+              <div className="mt-4 p-4 text-xs text-amber-300 bg-amber-950/40 border border-amber-800/50 rounded-xl text-left font-mono">
+                <p className="font-bold text-amber-200 mb-1">⚠️ Connection Diagnostics:</p>
+                <p>Target API URL: <span className="underline text-amber-100">{API_URL}</span></p>
+                <p className="mt-1 text-slate-300 font-sans">
+                  {API_URL.includes("localhost")
+                    ? "Your Vercel build is defaulting to localhost. Set VITE_API_URL in your Vercel project environment variables and trigger a redeploy."
+                    : "The backend service may still be booting or sleeping on Render free tier (takes ~50s after idle), or CORS was blocked. Click Retry below."}
+                </p>
+              </div>
+            )}
             <button
               onClick={() => refetch()}
-              className="mt-4 px-4 py-2 bg-surface-800 hover:bg-surface-700 text-white rounded-xl text-xs font-semibold transition-colors"
+              className="mt-5 px-5 py-2.5 bg-surface-800 hover:bg-surface-700 text-white rounded-xl text-xs font-semibold transition-colors"
             >
-              Retry
+              Retry Connection
             </button>
           </div>
         )}

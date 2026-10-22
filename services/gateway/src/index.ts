@@ -17,13 +17,17 @@ import { authRouter } from "./routes/auth.routes.js";
 
 const app = express();
 
-app.use(helmet());
 app.use(
-  cors({
-    origin: config.CORS_ORIGIN === "*" ? true : config.CORS_ORIGIN,
-    credentials: true,
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
+const corsMiddleware = cors({
+  origin: config.CORS_ORIGIN === "*" ? true : config.CORS_ORIGIN,
+  credentials: true,
+});
+app.use(corsMiddleware);
+app.options("*", corsMiddleware);
 app.use(requestIdMiddleware);
 
 // Global rate limiter: 100 requests / min
@@ -45,7 +49,16 @@ const authLimiter = rateLimit({
   message: { error: "RATE_LIMIT_EXCEEDED", message: "Too many authentication attempts, please try again later." },
 });
 
-// Health check
+// Root & Health check
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: "ok",
+    service: "seatsnap-gateway",
+    message: "SeatSnap API Gateway is live and accepting connections",
+    health: "/health",
+  });
+});
+
 app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", service: "gateway" });
 });
