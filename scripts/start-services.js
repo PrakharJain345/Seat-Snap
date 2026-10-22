@@ -96,12 +96,81 @@ function startService(svc) {
   processes.push(child);
 }
 
-// Start internal microservices first, then the gateway
-services.forEach((svc, index) => {
-  setTimeout(() => {
-    console.log(`▶️ Launching service: ${svc.name}...`);
-    startService(svc);
-  }, index * 800);
+async function ensureDatabaseSeeded() {
+  if (!process.env.DATABASE_URL) {
+    console.log("ℹ️ No DATABASE_URL found, skipping auto-seed.");
+    return;
+  }
+
+  try {
+    const { Pool } = await import("pg");
+    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+    let client;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        client = await pool.connect();
+        break;
+      } catch (err) {
+        console.log(`⏳ Waiting for database connection (attempt ${attempt}/5)...`);
+        if (attempt === 5) {
+          console.error("⚠️ Could not connect to database after 5 attempts:", err.message);
+          await pool.end().catch(() => {});
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
+    try {
+      const res = await client.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'booking' AND table_name = 'events'
+        );
+      `);
+      const tableExists = res.rows[0]?.exists;
+      if (tableExists) {
+        const countRes = await client.query("SELECT COUNT(*) FROM booking.events");
+        if (parseInt(countRes.rows[0].count, 10) > 0) {
+          console.log(`📦 Database already seeded with ${countRes.rows[0].count} events.`);
+          return;
+        }
+      }
+
+      console.log("🌱 Database unseeded. Running automatic dynamic database seeding...");
+      const { execSync } = await import("child_process");
+      execSync("npx tsx scripts/seed.ts", {
+        stdio: "inherit",
+        env: process.env,
+      });
+      console.log("✅ Automatic database seed finished successfully!");
+    } catch (err) {
+      console.error("⚠️ Failed to auto-seed database:", err.message);
+    } finally {
+      if (client) client.release();
+      await pool.end().catch(() => {});
+    }
+  } catch (err) {
+    console.error("⚠️ Database check failed:", err.message);
+  }
+}
+
+async function main() {
+  await ensureDatabaseSeeded();
+
+  // Start internal microservices first, then the gateway
+  services.forEach((svc, index) => {
+    setTimeout(() => {
+      console.log(`▶️ Launching service: ${svc.name}...`);
+      startService(svc);
+    }, index * 800);
+  });
+}
+
+main().catch((err) => {
+  console.error("Failed to start SeatSnap cluster:", err);
+  process.exit(1);
 });
 
 // Graceful shutdown handling

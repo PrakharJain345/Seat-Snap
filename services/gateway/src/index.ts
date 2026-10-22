@@ -63,6 +63,28 @@ app.get("/health", (_req: Request, res: Response) => {
   res.status(200).json({ status: "ok", service: "gateway" });
 });
 
+// One-click Web Seeding Endpoint (no paid Shell/SSH needed!)
+app.all("/api/seed", async (_req: Request, res: Response) => {
+  try {
+    const { execSync } = await import("child_process");
+    logger.info("🌱 Triggering dynamic database seeding via /api/seed endpoint...");
+    execSync("npx tsx scripts/seed.ts", {
+      stdio: "inherit",
+      env: process.env,
+    });
+    res.status(200).json({
+      status: "ok",
+      message: "Database seeded successfully with all dynamic upcoming shows, seats, and events!",
+    });
+  } catch (err: any) {
+    logger.error({ err }, "Seeding via /api/seed failed");
+    res.status(500).json({
+      status: "error",
+      message: err.message || "Failed to seed database",
+    });
+  }
+});
+
 // Auth routes (need JSON body parsing)
 app.use("/api/auth", express.json(), authLimiter, authRouter);
 
