@@ -8,3 +8,9 @@ coverage/
 .DS_Store
 Thumbs.db
 *.tsbuildinfo
+
+# Internal Specifications & Requirements
+PRD*.md
+TECHSTACK*.md
+*PRD*
+*TECHSTACK*
