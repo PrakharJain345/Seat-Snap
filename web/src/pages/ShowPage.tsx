@@ -34,10 +34,16 @@ export const ShowPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // 1. Fetch Show Details
-  const { data: show, isLoading: isShowLoading } = useQuery({
+  const {
+    data: show,
+    isLoading: isShowLoading,
+    error: showError,
+    refetch: refetchShow,
+  } = useQuery({
     queryKey: ["show", showId],
     queryFn: () => api.getShow(showId!),
     enabled: !!showId,
+    retry: 1,
   });
 
   // 2. Fetch Seats with 3-second live polling (PRD requirement)
@@ -45,11 +51,14 @@ export const ShowPage: React.FC = () => {
     data: seats,
     isLoading: isSeatsLoading,
     isRefetching: isSeatsRefetching,
+    error: seatsError,
+    refetch: refetchSeats,
   } = useQuery<SeatItem[]>({
     queryKey: ["seats", showId],
     queryFn: () => api.getSeats(showId!),
     enabled: !!showId,
     refetchInterval: 3000,
+    retry: 1,
   });
 
   // Organize seats by row
@@ -173,6 +182,35 @@ export const ShowPage: React.FC = () => {
     const s = secs % 60;
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
+
+  if (showError || seatsError) {
+    const err = (showError || seatsError) as Error;
+    return (
+      <div className="max-w-xl mx-auto px-4 py-24 text-center">
+        <div className="p-8 bg-red-950/20 border border-red-900/40 rounded-2xl">
+          <p className="text-red-400 font-semibold text-lg">Unable to load show or seats</p>
+          <p className="text-slate-400 text-sm mt-2">{err.message}</p>
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button
+              onClick={() => {
+                refetchShow();
+                refetchSeats();
+              }}
+              className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-xl text-xs transition-colors"
+            >
+              Retry
+            </button>
+            <Link
+              to="/"
+              className="px-5 py-2.5 bg-surface-800 hover:bg-surface-700 text-white rounded-xl text-xs font-semibold transition-colors"
+            >
+              Back to Home
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isShowLoading || isSeatsLoading) {
     return (

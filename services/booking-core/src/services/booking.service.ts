@@ -81,13 +81,17 @@ export async function getShowSeats(showId: string): Promise<SeatWithStatus[]> {
     dbStatusMap.set(row.seat_id, row.status);
   }
 
-  // 4. Check Redis hold keys
+  // 4. Check Redis hold keys (with 1.5s timeout guard so seat maps never hang)
   const redisKeys = seats.map((s) => getSeatHoldKey(showId, s.id));
   let redisValues: (string | null)[] = [];
   try {
-    redisValues = await redis.mget(...redisKeys);
+    const redisPromise = redis.mget(...redisKeys);
+    const timeoutPromise = new Promise<(string | null)[]>((_, reject) =>
+      setTimeout(() => reject(new Error("Redis mget timeout")), 1500)
+    );
+    redisValues = await Promise.race([redisPromise, timeoutPromise]);
   } catch {
-    // If Redis check fails, fallback to DB status
+    // If Redis check fails or times out, fallback immediately to PostgreSQL DB status
     redisValues = new Array(seats.length).fill(null);
   }
 

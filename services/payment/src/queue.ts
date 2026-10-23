@@ -5,7 +5,6 @@ import { config } from "./config.js";
 
 export const redis = new Redis(config.REDIS_URL, {
   maxRetriesPerRequest: null,
-  lazyConnect: true,
   retryStrategy(times) {
     return Math.min(times * 200, 2000);
   },

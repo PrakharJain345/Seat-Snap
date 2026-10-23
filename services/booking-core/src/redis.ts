@@ -3,9 +3,11 @@ import { logger } from "@seatsnap/shared";
 import { config } from "./config.js";
 
 export const redis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: null,
-  lazyConnect: true,
+  maxRetriesPerRequest: 3,
+  enableOfflineQueue: false,
+  connectTimeout: 5000,
   retryStrategy(times) {
+    if (times > 10) return null;
     const delay = Math.min(times * 200, 2000);
     return delay;
   },
