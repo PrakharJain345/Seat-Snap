@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -18,14 +18,34 @@ import {
   SeatItem,
   HoldResponse,
   getStoredUser,
+  getStoredToken,
+  clearAuth,
 } from "../api";
 import { Auditorium3D } from "../components/Auditorium3D";
 
+function generateIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  return `idemp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+}
+
 export const ShowPage: React.FC = () => {
   const { id: showId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const resumeBookingId = searchParams.get("bookingId");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const user = getStoredUser();
+  const token = getStoredToken();
 
   const [selectedSeatIds, setSelectedSeatIds] = useState<string[]>([]);
   const [activeHold, setActiveHold] = useState<HoldResponse | null>(null);
@@ -90,9 +110,63 @@ export const ShowPage: React.FC = () => {
     return selectedSeatsData.reduce((sum, s) => sum + s.priceMinor, 0);
   }, [selectedSeatsData]);
 
+  // Restore an active PENDING_PAYMENT hold on reload or when returning from My Bookings
+  useEffect(() => {
+    if (!showId || !user || !token || activeHold || paymentStatus === "success") {
+      return;
+    }
+
+    let cancelled = false;
+
+    const restorePendingHold = async () => {
+      try {
+        let pending = resumeBookingId ? await api.getBooking(resumeBookingId) : null;
+        if (!pending) {
+          const allBookings = await api.getMyBookings();
+          const now = Date.now();
+          pending =
+            allBookings.find(
+              (b) =>
+                b.show_id === showId &&
+                b.status === "PENDING_PAYMENT" &&
+                new Date(b.expires_at).getTime() > now
+            ) || null;
+        }
+
+        if (
+          !cancelled &&
+          pending &&
+          pending.show_id === showId &&
+          pending.status === "PENDING_PAYMENT" &&
+          new Date(pending.expires_at).getTime() > Date.now()
+        ) {
+          const heldSeatIds = (pending.seats || [])
+            .filter((s) => s.status === "HELD")
+            .map((s) => s.seat_id);
+
+          setActiveHold({
+            bookingId: pending.id,
+            expiresAt: pending.expires_at,
+            totalMinor: pending.total_minor,
+            status: pending.status,
+            seatIds: heldSeatIds,
+          });
+          setSelectedSeatIds(heldSeatIds);
+        }
+      } catch {
+        // Ignore restore errors; user can still select seats normally
+      }
+    };
+
+    restorePendingHold();
+    return () => {
+      cancelled = true;
+    };
+  }, [showId, user?.id, token, resumeBookingId, activeHold, paymentStatus]);
+
   // Hold Countdown Timer Effect
   useEffect(() => {
-    if (!activeHold?.expiresAt) {
+    if (!activeHold?.expiresAt || paymentStatus === "success") {
       setSecondsRemaining(null);
       return;
     }
@@ -115,7 +189,7 @@ export const ShowPage: React.FC = () => {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [activeHold, showId, queryClient]);
+  }, [activeHold, paymentStatus, showId, queryClient]);
 
   const handleToggleSeat = (seat: SeatItem) => {
     if (activeHold) return;
@@ -137,11 +211,11 @@ export const ShowPage: React.FC = () => {
 
   const holdMutation = useMutation({
     mutationFn: async () => {
-      if (!user) {
+      if (!user || !getStoredToken()) {
         navigate("/login");
         throw new Error("Please log in to hold seats");
       }
-      const idempotencyKey = crypto.randomUUID();
+      const idempotencyKey = generateIdempotencyKey();
       return api.holdSeats(showId!, selectedSeatIds, idempotencyKey);
     },
     onSuccess: (data) => {
@@ -150,6 +224,11 @@ export const ShowPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ["seats", showId] });
     },
     onError: (err: any) => {
+      if (err?.status === 401) {
+        clearAuth();
+        navigate("/login");
+        return;
+      }
       const msg = err.message || "Failed to hold seats. Someone may have just held them.";
       setErrorMessage(msg);
       queryClient.invalidateQueries({ queryKey: ["seats", showId] });
@@ -160,18 +239,45 @@ export const ShowPage: React.FC = () => {
     mutationFn: async () => {
       if (!activeHold) throw new Error("No active hold found");
       setPaymentStatus("paying");
+      setErrorMessage(null);
 
       const orderData = await api.payBooking(activeHold.bookingId);
-      await api.completeMockPayment(orderData.orderId);
-      await new Promise((res) => setTimeout(res, 1200));
+      if (orderData.status !== "PAID") {
+        await api.completeMockPayment(orderData.orderId);
+      }
 
-      return activeHold.bookingId;
+      // Poll booking status until confirmed (or terminal failure)
+      const maxAttempts = 30;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const booking = await api.getBooking(activeHold.bookingId);
+        if (booking.status === "CONFIRMED") {
+          return activeHold.bookingId;
+        }
+        if (
+          booking.status === "EXPIRED" ||
+          booking.status === "FAILED" ||
+          booking.status === "CANCELLED"
+        ) {
+          throw new Error(`Booking ${booking.status.toLowerCase()}. Please select seats again.`);
+        }
+        await new Promise((res) => setTimeout(res, 500));
+      }
+
+      throw new Error(
+        "Payment was submitted, but confirmation is taking longer than expected. Please check My Tickets."
+      );
     },
     onSuccess: () => {
       setPaymentStatus("success");
       queryClient.invalidateQueries({ queryKey: ["seats", showId] });
+      queryClient.invalidateQueries({ queryKey: ["my-bookings"] });
     },
     onError: (err: any) => {
+      if (err?.status === 401) {
+        clearAuth();
+        navigate("/login");
+        return;
+      }
       setPaymentStatus("error");
       setErrorMessage(err.message || "Payment processing failed");
     },
@@ -235,7 +341,7 @@ export const ShowPage: React.FC = () => {
             <span>Back to Event</span>
           </Link>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white flex items-center gap-3 font-display">
-            <span>{show?.event_title || "Select Your Seats"}</span>
+            <span>{show?.event_title || show?.event?.title || "Select Your Seats"}</span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 font-mono font-bold">
               LIVE SEAT MAP
             </span>

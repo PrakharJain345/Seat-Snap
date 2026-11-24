@@ -44,6 +44,10 @@ export function startPaymentConsumer() {
     logger.error({ jobId: job?.id, err }, "Payment event job failed");
   });
 
+  worker.on("error", (err) => {
+    logger.error({ err: err?.message || err }, "Payment consumer worker error");
+  });
+
   logger.info("Payment events consumer started");
   return worker;
 }

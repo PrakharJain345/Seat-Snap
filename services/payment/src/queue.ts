@@ -3,11 +3,26 @@ import { Redis } from "ioredis";
 import { QUEUES, DEFAULT_JOB_OPTIONS, logger } from "@seatsnap/shared";
 import { config } from "./config.js";
 
+const isTest = config.NODE_ENV === "test" || Boolean(process.env.VITEST);
+const isTls = config.REDIS_URL.startsWith("rediss://");
+
 export const redis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: null,
+  maxRetriesPerRequest: isTest ? 1 : null,
+  enableOfflineQueue: !isTest,
+  lazyConnect: isTest,
+  connectTimeout: 10000,
+  family: 4,
   retryStrategy(times) {
-    return Math.min(times * 200, 2000);
+    if (isTest) return null;
+    return Math.min(times * 500, 10000);
   },
+  ...(isTls
+    ? {
+        tls: {
+          rejectUnauthorized: false,
+        },
+      }
+    : {}),
 });
 
 redis.on("error", (err) => {

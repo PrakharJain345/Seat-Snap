@@ -101,6 +101,7 @@ services:
       DATABASE_URL: postgres://seatsnap:seatsnap@postgres:5432/seatsnap
       REDIS_URL: redis://redis:6379
       INTERNAL_API_KEY: seatsnap-internal-key-32chars-dev
+      BOOKING_URL: http://booking-core:4001
       PAYMENT_PROVIDER: mock
       PAYMENT_WEBHOOK_SECRET: seatsnap-webhook-secret-dev
     depends_on:

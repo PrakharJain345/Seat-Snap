@@ -11,6 +11,13 @@ export interface EventShow {
   venue_name: string;
   starts_at: string;
   event_title?: string;
+  event?: {
+    id: string;
+    title: string;
+    category: string;
+    city: string;
+    description: string | null;
+  };
   city?: string;
   category?: string;
   total_seats?: number;
@@ -75,7 +82,8 @@ export interface HoldResponse {
 export interface PaymentOrderResponse {
   orderId: string;
   provider: string;
-  checkout: Record<string, unknown>;
+  status?: string;
+  checkout?: Record<string, unknown>;
 }
 
 export interface AuthResponse {
@@ -211,6 +219,20 @@ export const api = {
 
   getTicketQrUrl: (ticketId: string) => {
     return `${API_URL}/api/tickets/${ticketId}/qr`;
+  },
+
+  fetchTicketQrBlobUrl: async (ticketId: string): Promise<string> => {
+    const token = getStoredToken();
+    const headers = new Headers();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    const res = await fetch(`${API_URL}/api/tickets/${ticketId}/qr`, { headers });
+    if (!res.ok) {
+      throw new Error(`Failed to load QR code (${res.status})`);
+    }
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
   },
 
   validateTicket: (token: string) => {

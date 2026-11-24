@@ -194,10 +194,10 @@ export const MyBookingsPage: React.FC = () => {
                           </span>
                         ))}
                       </div>
-                      {isPending && (
+                      {isPending && new Date(booking.expires_at).getTime() > Date.now() && (
                         <div className="mt-4">
                           <Link
-                            to={`/shows/${booking.show_id}`}
+                            to={`/shows/${booking.show_id}?bookingId=${booking.id}`}
                             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-400 text-black font-bold text-xs rounded-xl shadow-sm"
                           >
                             Complete Payment Now &rarr;

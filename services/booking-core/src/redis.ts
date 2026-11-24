@@ -1,22 +1,36 @@
-import { Redis } from "ioredis";
+import { Redis, RedisOptions } from "ioredis";
 import { logger } from "@seatsnap/shared";
 import { config } from "./config.js";
 
-export const redis = new Redis(config.REDIS_URL, {
-  maxRetriesPerRequest: 3,
-  enableOfflineQueue: false,
-  connectTimeout: 5000,
+const isTest = config.NODE_ENV === "test" || Boolean(process.env.VITEST);
+const isTls = config.REDIS_URL.startsWith("rediss://");
+
+const redisOptions: RedisOptions = {
+  maxRetriesPerRequest: isTest ? 1 : null,
+  enableOfflineQueue: !isTest,
+  lazyConnect: isTest,
+  connectTimeout: 10000,
+  family: 4,
   retryStrategy(times) {
-    if (times > 10) return null;
-    const delay = Math.min(times * 200, 2000);
-    return delay;
+    if (isTest) return null;
+    return Math.min(times * 500, 10000);
   },
-});
+  ...(isTls
+    ? {
+        tls: {
+          rejectUnauthorized: false,
+        },
+      }
+    : {}),
+};
+
+export const redis = new Redis(config.REDIS_URL, redisOptions);
 
 redis.on("error", (err) => {
-  logger.error({ err }, "Redis connection error in booking-core");
+  logger.error({ err: err?.message || err }, "Redis connection error in booking-core");
 });
 
 redis.on("connect", () => {
   logger.info("Connected to Redis in booking-core");
 });
+

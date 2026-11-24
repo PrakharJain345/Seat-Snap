@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Ticket, Calendar, MapPin, QrCode, ShieldCheck } from "lucide-react";
 import { Card3D } from "./Card3D";
 import { api, TicketItem, BookingItem } from "../api";
@@ -9,7 +9,37 @@ interface TicketPass3DProps {
 }
 
 export const TicketPass3D: React.FC<TicketPass3DProps> = ({ booking, ticket }) => {
-  const qrUrl = api.getTicketQrUrl(ticket.id);
+  const [qrSrc, setQrSrc] = useState<string | null>(null);
+  const [qrError, setQrError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl: string | null = null;
+
+    api
+      .fetchTicketQrBlobUrl(ticket.id)
+      .then((url) => {
+        if (active) {
+          objectUrl = url;
+          setQrSrc(url);
+          setQrError(false);
+        } else {
+          URL.revokeObjectURL(url);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setQrError(true);
+        }
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [ticket.id]);
 
   return (
     <Card3D maxTilt={10} glowColor="gold" className="w-full max-w-sm mx-auto">
@@ -84,15 +114,16 @@ export const TicketPass3D: React.FC<TicketPass3DProps> = ({ booking, ticket }) =
         {/* QR Code Section */}
         <div className="relative z-10 flex flex-col items-center justify-center p-3 rounded-2xl bg-surface-950 border border-slate-800">
           <div className="relative w-32 h-32 bg-white p-2 rounded-xl overflow-hidden shadow-inner flex items-center justify-center">
-            <img
-              src={qrUrl}
-              alt={`Ticket ${ticket.id} QR Code`}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                (e.target as HTMLElement).style.display = "none";
-              }}
-            />
-            <QrCode className="w-20 h-20 text-slate-900 absolute opacity-20 -z-10" />
+            {qrSrc && !qrError ? (
+              <img
+                src={qrSrc}
+                alt={`Ticket ${ticket.id} QR Code`}
+                className="w-full h-full object-contain"
+                onError={() => setQrError(true)}
+              />
+            ) : (
+              <QrCode className="w-20 h-20 text-slate-900 opacity-30" />
+            )}
           </div>
 
           <p className="text-[10px] font-mono text-slate-400 mt-2 text-center">

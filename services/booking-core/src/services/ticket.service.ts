@@ -137,27 +137,45 @@ export async function confirmBookingOnPayment(
   }
 
   if (outcome === "confirmed" && userId && showId) {
-    await bookingEventsQueue.add(
-      JOB_TYPES.BOOKING_CONFIRMED,
-      {
-        bookingId,
-        userId,
-        showId,
-        seatIds,
-      } as BookingConfirmedPayload,
-      DEFAULT_JOB_OPTIONS
-    );
-    logger.info({ bookingId }, "booking.confirmed published");
+    try {
+      await Promise.race([
+        bookingEventsQueue.add(
+          JOB_TYPES.BOOKING_CONFIRMED,
+          {
+            bookingId,
+            userId,
+            showId,
+            seatIds,
+          } as BookingConfirmedPayload,
+          DEFAULT_JOB_OPTIONS
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("BullMQ booking.confirmed timeout")), 2000)
+        ),
+      ]);
+      logger.info({ bookingId }, "booking.confirmed published");
+    } catch (queueErr) {
+      logger.error({ queueErr, bookingId }, "Failed to publish booking.confirmed to BullMQ");
+    }
   } else if (outcome === "late_payment") {
-    await bookingEventsQueue.add(
-      JOB_TYPES.BOOKING_REFUND_REQUESTED,
-      {
-        bookingId,
-        paymentId,
-        reason: "Payment received after booking expiry",
-      } as BookingRefundRequestedPayload,
-      DEFAULT_JOB_OPTIONS
-    );
+    try {
+      await Promise.race([
+        bookingEventsQueue.add(
+          JOB_TYPES.BOOKING_REFUND_REQUESTED,
+          {
+            bookingId,
+            paymentId,
+            reason: "Payment received after booking expiry",
+          } as BookingRefundRequestedPayload,
+          DEFAULT_JOB_OPTIONS
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("BullMQ booking.refund_requested timeout")), 2000)
+        ),
+      ]);
+    } catch (queueErr) {
+      logger.error({ queueErr, bookingId }, "Failed to publish booking.refund_requested to BullMQ");
+    }
   }
 
   return outcome;

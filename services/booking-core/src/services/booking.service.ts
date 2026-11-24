@@ -6,6 +6,7 @@ import {
   acquireSeatHold,
   releaseSeatHold,
   getSeatHoldKey,
+  logger,
 } from "@seatsnap/shared";
 import { pool } from "../db.js";
 import { redis } from "../redis.js";
@@ -68,11 +69,13 @@ export async function getShowSeats(showId: string): Promise<SeatWithStatus[]> {
     return [];
   }
 
-  // 3. Query DB active booking_seats
+  // 3. Query DB active booking_seats (ignore expired holds awaiting sweeper)
   const dbActiveRes = await pool.query(
-    `SELECT seat_id, status
-     FROM booking.booking_seats
-     WHERE show_id = $1 AND status IN ('HELD', 'CONFIRMED')`,
+    `SELECT bs.seat_id, bs.status
+     FROM booking.booking_seats bs
+     JOIN booking.bookings b ON bs.booking_id = b.id
+     WHERE bs.show_id = $1
+       AND (bs.status = 'CONFIRMED' OR (bs.status = 'HELD' AND b.expires_at > now()))`,
     [showId]
   );
 
@@ -168,26 +171,40 @@ export async function holdSeats(params: {
 
   const totalMinor = seatsRes.rows.reduce((sum, r) => sum + r.price_minor, 0);
 
-  // Step 3: Check if any seat is already CONFIRMED in DB
-  const confirmedRes = await pool.query(
-    `SELECT seat_id
-     FROM booking.booking_seats
-     WHERE show_id = $1 AND seat_id = ANY($2) AND status = 'CONFIRMED'`,
+  // Step 3: Check if any seat is already CONFIRMED or actively HELD in DB
+  const activeSeatsRes = await pool.query(
+    `SELECT bs.seat_id, bs.status
+     FROM booking.booking_seats bs
+     JOIN booking.bookings b ON bs.booking_id = b.id
+     WHERE bs.show_id = $1
+       AND bs.seat_id = ANY($2)
+       AND (bs.status = 'CONFIRMED' OR (bs.status = 'HELD' AND b.expires_at > now()))`,
     [showId, seatIds]
   );
 
-  if (confirmedRes.rows.length > 0) {
-    throw new AppError(409, "SEATS_UNAVAILABLE", "One or more requested seats are already booked");
+  if (activeSeatsRes.rows.length > 0) {
+    throw new AppError(409, "SEATS_UNAVAILABLE", "One or more requested seats are currently held or already booked");
   }
 
-  // Step 4: Atomic hold in Redis (Lua script)
+  // Step 4: Atomic hold in Redis (Lua script) with timeout protection & database safety-net fallback
   const bookingId = randomUUID();
   let acquired = false;
+  let redisHoldSucceeded = false;
 
   try {
-    acquired = await acquireSeatHold(redis, showId, seatIds, bookingId, ttlSeconds);
-  } catch (err) {
-    throw new AppError(500, "REDIS_ERROR", "Failed to acquire seat hold lock in Redis", err);
+    const holdPromise = acquireSeatHold(redis, showId, seatIds, bookingId, ttlSeconds);
+    const timeoutPromise = new Promise<boolean>((_, reject) =>
+      setTimeout(() => reject(new Error("Redis hold timeout")), 2000)
+    );
+    acquired = await Promise.race([holdPromise, timeoutPromise]);
+    redisHoldSucceeded = acquired;
+  } catch (err: any) {
+    logger.warn(
+      { err: err?.message || err, showId, seatIds, bookingId },
+      "Redis seat hold lock unavailable or timed out; falling back to PostgreSQL atomic constraint safety net"
+    );
+    // When Redis is unreachable or times out, gracefully fall back to PostgreSQL ACID transaction + uq_active_seat
+    acquired = true;
   }
 
   if (!acquired) {
@@ -199,6 +216,31 @@ export async function holdSeats(params: {
 
   try {
     await withTransaction(pool, async (client) => {
+      // Release any expired HELD rows for these seats before inserting new HELD rows
+      // so uq_active_seat does not reject valid bookings between TTL expiry and sweeper runs.
+      await client.query(
+        `WITH expired_holds AS (
+           SELECT DISTINCT bs.booking_id
+           FROM booking.booking_seats bs
+           JOIN booking.bookings b ON bs.booking_id = b.id
+           WHERE bs.show_id = $1
+             AND bs.seat_id = ANY($2)
+             AND bs.status = 'HELD'
+             AND b.expires_at <= now()
+         ),
+         upd_bookings AS (
+           UPDATE booking.bookings b
+           SET status = 'EXPIRED'
+           FROM expired_holds eh
+           WHERE b.id = eh.booking_id AND b.status = 'PENDING_PAYMENT'
+         )
+         UPDATE booking.booking_seats bs
+         SET status = 'RELEASED'
+         FROM expired_holds eh
+         WHERE bs.booking_id = eh.booking_id AND bs.status = 'HELD'`,
+        [showId, seatIds]
+      );
+
       await client.query(
         `INSERT INTO booking.bookings (id, user_id, show_id, status, total_minor, idempotency_key, expires_at)
          VALUES ($1, $2, $3, 'PENDING_PAYMENT', $4, $5, $6)`,
@@ -214,11 +256,13 @@ export async function holdSeats(params: {
       }
     });
   } catch (dbErr: unknown) {
-    // Release Redis keys on DB transaction failure
-    try {
-      await releaseSeatHold(redis, showId, seatIds, bookingId);
-    } catch {
-      // ignore secondary release error
+    // Release Redis keys on DB transaction failure if Redis hold was acquired
+    if (redisHoldSucceeded) {
+      try {
+        await releaseSeatHold(redis, showId, seatIds, bookingId);
+      } catch {
+        // ignore secondary release error
+      }
     }
 
     const pgErr = dbErr as { code?: string; constraint?: string };

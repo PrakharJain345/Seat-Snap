@@ -75,6 +75,10 @@ function startBookingEventsConsumer() {
     logger.error({ jobId: job?.id, err }, "Notification job failed");
   });
 
+  worker.on("error", (err) => {
+    logger.error({ err: err?.message || err }, "Notification consumer worker error");
+  });
+
   logger.info("Booking events consumer started in notification service");
   return worker;
 }

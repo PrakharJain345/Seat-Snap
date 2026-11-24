@@ -13,6 +13,8 @@ import { bookingsRouter, meRouter } from "./routes/bookings.routes.js";
 import { ticketsRouter } from "./routes/tickets.routes.js";
 import { startSweeper } from "./services/sweeper.service.js";
 import { startPaymentConsumer } from "./consumers/payment.consumer.js";
+import { confirmBookingOnPayment } from "./services/ticket.service.js";
+import { z } from "zod";
 
 const app = express();
 
@@ -42,6 +44,22 @@ app.use("/me", meRouter);
 
 app.use("/api/tickets", ticketsRouter);
 app.use("/tickets", ticketsRouter);
+
+// Internal payment confirmation fallback (when BullMQ/Redis is unavailable)
+const InternalConfirmSchema = z.object({
+  paymentId: z.string().uuid(),
+});
+
+app.post("/internal/bookings/:id/confirm", async (req, res, next) => {
+  try {
+    const bookingId = z.string().uuid().parse(req.params.id);
+    const { paymentId } = InternalConfirmSchema.parse(req.body);
+    const outcome = await confirmBookingOnPayment(bookingId, paymentId);
+    res.status(200).json({ bookingId, outcome });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // Catch-all 404
 app.use((_req: Request, res: Response) => {

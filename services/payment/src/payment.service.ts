@@ -1,4 +1,4 @@
-import { createHmac } from "crypto";
+import { createHmac, randomUUID } from "crypto";
 import { z } from "zod";
 import {
   AppError,
@@ -28,7 +28,7 @@ export async function createPaymentOrder(
 
   // Idempotency: check if order already exists for this booking
   const existing = await pool.query(
-    `SELECT id, provider_order_id, status FROM payment.payments WHERE booking_id = $1`,
+    `SELECT id, provider, provider_order_id, amount_minor, status FROM payment.payments WHERE booking_id = $1`,
     [bookingId]
   );
 
@@ -39,6 +39,12 @@ export async function createPaymentOrder(
       orderId: row.provider_order_id,
       provider: row.provider,
       status: row.status,
+      checkout: {
+        provider: row.provider,
+        providerOrderId: row.provider_order_id,
+        bookingId,
+        amountMinor: row.amount_minor,
+      },
     };
   }
 
@@ -173,14 +179,60 @@ export async function handleWebhook(
       [payment.id]
     );
 
-    // Publish payment.succeeded for booking-core to consume
+    // Publish payment.succeeded for booking-core to consume (with timeout + HTTP fallback)
     const jobPayload: PaymentSucceededPayload = {
       bookingId: payment.booking_id,
       paymentId: payment.id,
     };
 
-    await paymentEventsQueue.add(JOB_TYPES.PAYMENT_SUCCEEDED, jobPayload, DEFAULT_JOB_OPTIONS);
-    logger.info({ bookingId: payment.booking_id, paymentId: payment.id }, "payment.succeeded published");
+    let queuePublished = false;
+    try {
+      await Promise.race([
+        paymentEventsQueue.add(JOB_TYPES.PAYMENT_SUCCEEDED, jobPayload, DEFAULT_JOB_OPTIONS),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("BullMQ payment.succeeded timeout")), 2000)
+        ),
+      ]);
+      queuePublished = true;
+      logger.info({ bookingId: payment.booking_id, paymentId: payment.id }, "payment.succeeded published");
+    } catch (queueErr) {
+      logger.warn(
+        { queueErr, bookingId: payment.booking_id, paymentId: payment.id },
+        "Failed to publish payment.succeeded to BullMQ; falling back to direct internal confirmation"
+      );
+    }
+
+    if (!queuePublished) {
+      const confirmRes = await fetch(
+        `${config.BOOKING_URL}/internal/bookings/${payment.booking_id}/confirm`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-internal-key": config.INTERNAL_API_KEY,
+          },
+          body: JSON.stringify({ paymentId: payment.id }),
+        }
+      );
+
+      if (!confirmRes.ok) {
+        const errText = await confirmRes.text().catch(() => "");
+        logger.error(
+          { status: confirmRes.status, errText, bookingId: payment.booking_id },
+          "Direct internal booking confirmation fallback failed"
+        );
+        throw new AppError(
+          502,
+          "CONFIRMATION_FAILED",
+          "Payment succeeded but booking confirmation failed. Please retry."
+        );
+      }
+
+      logger.info(
+        { bookingId: payment.booking_id, paymentId: payment.id },
+        "Booking confirmed via direct internal fallback"
+      );
+    }
   }
 
   return { received: true };
@@ -194,7 +246,7 @@ export async function handleMockComplete(orderId: string, provider: PaymentProvi
   }
 
   // Build a valid mock webhook payload
-  const mockEventId = `mock_evt_${Date.now()}`;
+  const mockEventId = `mock_evt_${Date.now()}_${randomUUID().slice(0, 8)}`;
   const body = {
     event: "mock.payment.succeeded",
     event_id: mockEventId,

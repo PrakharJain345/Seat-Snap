@@ -203,6 +203,51 @@ describe("Phase 5: HMAC Ticket Token", () => {
     expect(publishedJobs.length).toBe(1);
     expect(publishedJobs[0]).toBe("payment.succeeded");
   });
+
+  it("falls back to direct internal HTTP confirmation if BullMQ publish fails", async () => {
+    const provider = makeMockProvider();
+    const { rawBody, signature } = buildMockPayload({ event_id: "fallback-http-001" });
+
+    const mockPool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO payment.webhook_events")) return { rows: [] };
+        if (sql.includes("SELECT id, booking_id, amount_minor FROM payment.payments")) {
+          return { rows: [{ id: "pay-fb", booking_id: "booking-fb", amount_minor: 50000 }] };
+        }
+        if (sql.includes("UPDATE payment.payments SET status = 'PAID'")) {
+          return { rowCount: 1 };
+        }
+        return { rows: [] };
+      }),
+    };
+
+    const failingQueue = {
+      add: vi.fn(async () => {
+        throw new Error("Redis connection closed");
+      }),
+    };
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ bookingId: "booking-fb", outcome: "confirmed" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const origPool = await import("../services/payment/src/db.js");
+    vi.spyOn(origPool, "pool" as never, "get").mockReturnValue(mockPool as never);
+    const origQueue = await import("../services/payment/src/queue.js");
+    vi.spyOn(origQueue, "paymentEventsQueue" as never, "get").mockReturnValue(failingQueue as never);
+
+    try {
+      const res = await handleWebhook(rawBody, signature, provider);
+      expect(res.received).toBe(true);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy.mock.calls[0][0]).toContain("/internal/bookings/booking-fb/confirm");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
 });
 
 describe("Phase 5: Late Payment Handling", () => {

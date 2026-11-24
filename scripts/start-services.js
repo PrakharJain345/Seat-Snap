@@ -47,6 +47,7 @@ const services = [
     script: "services/payment/dist/index.js",
     env: {
       PORT: "4002",
+      BOOKING_URL: "http://localhost:4001",
     },
   },
   {
